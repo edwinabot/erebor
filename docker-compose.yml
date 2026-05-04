@@ -1,0 +1,22 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: erebor-timescaledb
+    environment:
+      POSTGRES_DB: erebor
+      POSTGRES_USER: erebor
+      POSTGRES_PASSWORD: erebor_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - erebor_timescale_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erebor -d erebor"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  erebor_timescale_data:
+    name: erebor_timescale_data

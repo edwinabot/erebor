@@ -143,11 +143,33 @@ func main() {
 	<-ctx.Done()
 	rootLogger.Info("shutdown initiated")
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
-	_ = healthSrv.Shutdown(shutdownCtx)
-	_ = sm.Close()
-	<-dispatchDone
+
+	// 1. Stop accepting new health probes.
+	if err := healthSrv.Shutdown(shutdownCtx); err != nil {
+		rootLogger.Warn("health server shutdown error", zap.Error(err))
+	}
+
+	// 2. Close the WebSocket stream — no new diffs will be produced. This
+	//    closes the Events channel, which lets the dispatcher loop exit.
+	if err := sm.Close(); err != nil {
+		rootLogger.Warn("stream close error", zap.Error(err))
+	}
+
+	// 3. Wait for the dispatcher to finish processing whatever was already
+	//    on the events channel. After this, no new HandleDiff calls will run.
+	select {
+	case <-dispatchDone:
+	case <-shutdownCtx.Done():
+		rootLogger.Warn("dispatcher did not drain before deadline")
+	}
+
+	// 4. Wait for any in-flight snapshot fetches to unwind. They observe
+	//    ctx cancellation and return promptly.
+	for _, h := range concrete {
+		h.Stop()
+	}
 
 	rootLogger.Info("shutdown complete")
 }

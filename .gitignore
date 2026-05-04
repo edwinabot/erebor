@@ -1,1 +1,3 @@
-bin/erebor-ingest
+bin/
+.env
+config.yaml

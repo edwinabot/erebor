@@ -77,6 +77,13 @@ func (h *Handler) Start(ctx context.Context) {
 	h.mu.Unlock()
 }
 
+// Stop blocks until any in-flight snapshot fetch goroutine returns. It does
+// not cancel the snapshot fetch — callers should cancel the context passed to
+// Start first so the fetch unwinds promptly.
+func (h *Handler) Stop() {
+	h.bootstrapG.Wait()
+}
+
 func (h *Handler) State() SymbolState {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -145,8 +152,11 @@ func (h *Handler) kickoffSnapshotLocked() {
 		h.snapshotPending = false
 		if err != nil {
 			h.logger.Error("snapshot fetch failed", zap.Error(err))
-			// Re-kick after backoff is implicitly handled by next diff or
-			// caller-driven restart; trigger another fetch if still bootstrapping.
+			// Stop retrying when shutting down; otherwise re-kick so a transient
+			// failure doesn't strand the handler in BOOTSTRAPPING.
+			if h.ctx != nil && h.ctx.Err() != nil {
+				return
+			}
 			if h.state == Bootstrapping {
 				h.kickoffSnapshotLocked()
 			}
