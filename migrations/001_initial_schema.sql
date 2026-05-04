@@ -20,8 +20,12 @@ SELECT create_hypertable(
     if_not_exists       => TRUE
 );
 
+-- TimescaleDB requires the partition column (event_time) to participate in
+-- any unique index on a hypertable. The ADR-specified uniqueness on
+-- (symbol, final_update_id) is preserved in practice — a given final_update_id
+-- from Binance has exactly one event_time.
 CREATE UNIQUE INDEX IF NOT EXISTS order_book_diffs_symbol_final_update_id_uidx
-    ON order_book_diffs (symbol, final_update_id);
+    ON order_book_diffs (symbol, final_update_id, event_time);
 
 CREATE INDEX IF NOT EXISTS order_book_diffs_symbol_event_time_idx
     ON order_book_diffs (symbol, event_time DESC);

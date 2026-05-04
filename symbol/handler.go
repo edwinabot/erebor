@@ -69,11 +69,16 @@ func NewHandler(cfg Config, ob book.OrderBook, df fetcher.DepthFetcher, repo rep
 	}
 }
 
+// Start binds the handler to a context. The bootstrap snapshot fetch is
+// deferred until the first diff arrives — per the ADR state diagram, the
+// transition out of DISCONNECTED is gated on the stream being connected.
+// Kicking off the snapshot before any event is buffered creates a race
+// where the snapshot's LastUpdateID can fall in a gap the WebSocket
+// hasn't yet produced, leaving the handler stuck waiting for an
+// alignment event that already passed.
 func (h *Handler) Start(ctx context.Context) {
 	h.mu.Lock()
 	h.ctx = ctx
-	h.transitionLocked(Bootstrapping)
-	h.kickoffSnapshotLocked()
 	h.mu.Unlock()
 }
 
@@ -162,6 +167,10 @@ func (h *Handler) kickoffSnapshotLocked() {
 			}
 			return
 		}
+		h.logger.Info("snapshot received",
+			zap.Int64("snapshot_last_update_id", snap.LastUpdateID),
+			zap.Int("buffer_size", len(h.buffer)),
+		)
 		h.snapshot = &snap
 		h.tryAlignLocked()
 	}()

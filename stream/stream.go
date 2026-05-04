@@ -156,8 +156,12 @@ func (m *Manager) runOnce(ctx context.Context) error {
 		m.mu.Unlock()
 	}()
 
-	m.logger.Info("websocket connected", zap.Int("symbols", len(m.cfg.Symbols)))
+	m.logger.Info("websocket connected",
+		zap.Int("symbols", len(m.cfg.Symbols)),
+		zap.String("url", wsURL),
+	)
 
+	frames := 0
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
@@ -171,6 +175,13 @@ func (m *Manager) runOnce(ctx context.Context) error {
 		}
 		if raw.Data.EventType == "" {
 			continue
+		}
+		frames++
+		if frames == 1 || frames%500 == 0 {
+			m.logger.Info("frames received",
+				zap.Int("count", frames),
+				zap.String("symbol", raw.Data.Symbol),
+			)
 		}
 		select {
 		case <-ctx.Done():

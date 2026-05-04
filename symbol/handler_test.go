@@ -233,13 +233,12 @@ func TestBootstrap_BufferOverflowTriggersResnapshot(t *testing.T) {
 	h, _ := newHandler(t, mf, repo, 3)
 
 	h.Start(context.Background())
-	// Wait for first snapshot to be consumed.
-	waitFor(t, func() bool { return mf.callCount() >= 1 }, time.Second, "first snapshot fetch")
 
-	// Push events whose FirstUpdateID > 10 (so they survive discard) and
-	// have no alignment with lastUpdateID=10. They will trigger overflow
-	// (MaxBufferSize=3).
+	// First diff triggers the transition out of DISCONNECTED and kicks off
+	// the snapshot fetch. All four have FirstUpdateID > 10 (so they survive
+	// the pre-snapshot discard) and none align with lastUpdateID=10.
 	h.HandleDiff(diff(50, 51))
+	waitFor(t, func() bool { return mf.callCount() >= 1 }, time.Second, "first snapshot fetch")
 	h.HandleDiff(diff(52, 53))
 	h.HandleDiff(diff(54, 55))
 	h.HandleDiff(diff(56, 57)) // overflow → re-fetch

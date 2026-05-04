@@ -40,7 +40,7 @@ func (r *PGRepository) WriteDiff(ctx context.Context, event domain.DiffEvent) er
 		INSERT INTO order_book_diffs
 		    (event_time, symbol, first_update_id, final_update_id, bids, asks, received_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (symbol, final_update_id) DO NOTHING
+		ON CONFLICT (symbol, final_update_id, event_time) DO NOTHING
 	`,
 		event.EventTime, event.Symbol, event.FirstUpdateID, event.FinalUpdateID,
 		bidsJSON, asksJSON, time.Now().UTC(),

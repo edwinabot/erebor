@@ -53,8 +53,13 @@ migrate:
 	if [ -z "$$DSN" ]; then \
 	    echo "DATABASE_DSN is required"; exit 1; \
 	fi; \
-	echo "applying $(MIGRATION) to $$DSN"; \
-	psql "$$DSN" -v ON_ERROR_STOP=1 -f $(MIGRATION)
+	if psql --version >/dev/null 2>&1; then \
+	    echo "applying $(MIGRATION) via host psql to $$DSN"; \
+	    psql "$$DSN" -v ON_ERROR_STOP=1 -f $(MIGRATION); \
+	else \
+	    echo "host psql not found — applying $(MIGRATION) via docker compose exec"; \
+	    $(COMPOSE) exec -T $(DB_SERVICE) psql "$$DSN" -v ON_ERROR_STOP=1 -f - < $(MIGRATION); \
+	fi
 
 # ---------- End-to-end local run ----------
 
