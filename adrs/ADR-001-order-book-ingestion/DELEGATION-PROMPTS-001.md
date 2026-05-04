@@ -18,9 +18,9 @@ You are implementing a Go service called `erebor-ingest`. The complete architect
 
 #### Module and dependency requirements
 
-- Go module path: `github.com/[YOUR_USERNAME]/erebor/ingest`
+- Go module path: `github.com/edwinabot/erebor/ingest`
 - Use `github.com/shopspring/decimal` for all price and quantity values. `float64` is forbidden for any price, quantity, or derived financial value. This is a hard requirement, not a preference.
-- Use `github.com/gorilla/websocket` or `nhooyr.io/websocket` for WebSocket transport. State your choice and reason in a code comment at the top of the `stream` package.
+- Use `https://github.com/coder/websocket/releases/tag/v1.8.14` for WebSocket transport.
 - Use `github.com/jackc/pgx/v5` for PostgreSQL/TimescaleDB access.
 - Use `github.com/spf13/viper` for configuration loading.
 - Use `go.uber.org/zap` for structured JSON logging.
@@ -196,7 +196,7 @@ Provide a `Makefile` with these targets:
 
 ---
 
-[PASTE FULL SPEC FROM ADR-001 HERE]
+See full ADR-001 spec at `adrs/ADR-001-order-book-ingestion/ADR-001-order-book-ingestion.md`
 
 ---
 
