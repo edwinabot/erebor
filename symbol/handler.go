@@ -1,0 +1,303 @@
+package symbol
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/edwinabot/erebor/ingest/book"
+	"github.com/edwinabot/erebor/ingest/domain"
+	"github.com/edwinabot/erebor/ingest/fetcher"
+	"github.com/edwinabot/erebor/ingest/repository"
+	"go.uber.org/zap"
+)
+
+type SymbolHandler interface {
+	HandleDiff(event domain.DiffEvent)
+	State() SymbolState
+}
+
+type Config struct {
+	Symbol                  string
+	DepthLimit              int
+	CheckpointInterval      time.Duration
+	CheckpointDiffThreshold int
+	MaxBufferSize           int
+}
+
+type Handler struct {
+	cfg     Config
+	logger  *zap.Logger
+	book    book.OrderBook
+	fetcher fetcher.DepthFetcher
+	repo    repository.Repository
+
+	ctx        context.Context
+	bootstrapG sync.WaitGroup
+
+	mu              sync.Mutex
+	state           SymbolState
+	buffer          []domain.DiffEvent
+	snapshot        *domain.SnapshotEvent
+	snapshotPending bool
+
+	lastFinalUpdateID    int64
+	lastCheckpointTime   time.Time
+	diffsSinceCheckpoint int
+}
+
+func NewHandler(cfg Config, ob book.OrderBook, df fetcher.DepthFetcher, repo repository.Repository, logger *zap.Logger) *Handler {
+	if cfg.DepthLimit <= 0 {
+		cfg.DepthLimit = 50
+	}
+	if cfg.CheckpointInterval <= 0 {
+		cfg.CheckpointInterval = time.Second
+	}
+	if cfg.CheckpointDiffThreshold <= 0 {
+		cfg.CheckpointDiffThreshold = 500
+	}
+	if cfg.MaxBufferSize <= 0 {
+		cfg.MaxBufferSize = 1000
+	}
+	return &Handler{
+		cfg:     cfg,
+		logger:  logger.With(zap.String("component", "symbol"), zap.String("symbol", cfg.Symbol)),
+		book:    ob,
+		fetcher: df,
+		repo:    repo,
+		state:   Disconnected,
+	}
+}
+
+func (h *Handler) Start(ctx context.Context) {
+	h.mu.Lock()
+	h.ctx = ctx
+	h.transitionLocked(Bootstrapping)
+	h.kickoffSnapshotLocked()
+	h.mu.Unlock()
+}
+
+func (h *Handler) State() SymbolState {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.state
+}
+
+func (h *Handler) HandleDiff(event domain.DiffEvent) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	switch h.state {
+	case Disconnected:
+		h.transitionLocked(Bootstrapping)
+		h.kickoffSnapshotLocked()
+		h.bufferLocked(event)
+	case Bootstrapping:
+		h.bufferLocked(event)
+		if h.snapshot != nil {
+			h.tryAlignLocked()
+		} else if len(h.buffer) > h.cfg.MaxBufferSize {
+			h.logger.Warn("buffer overflow during bootstrap, re-fetching snapshot",
+				zap.Int("buffer_size", len(h.buffer)),
+			)
+			h.buffer = h.buffer[:0]
+			h.snapshot = nil
+			h.kickoffSnapshotLocked()
+		}
+	case Synced:
+		h.handleSyncedLocked(event)
+	case Resyncing:
+		// Drain — book is being reset. New bootstrap will pick up from here.
+		h.bufferLocked(event)
+	}
+}
+
+func (h *Handler) transitionLocked(to SymbolState) {
+	if h.state == to {
+		return
+	}
+	h.logger.Info("state transition",
+		zap.String("from_state", h.state.String()),
+		zap.String("to_state", to.String()),
+	)
+	h.state = to
+}
+
+func (h *Handler) bufferLocked(event domain.DiffEvent) {
+	h.buffer = append(h.buffer, event)
+}
+
+func (h *Handler) kickoffSnapshotLocked() {
+	if h.snapshotPending {
+		return
+	}
+	h.snapshotPending = true
+	ctx := h.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	h.bootstrapG.Add(1)
+	go func() {
+		defer h.bootstrapG.Done()
+		snap, err := h.fetcher.FetchSnapshot(ctx, h.cfg.Symbol, h.cfg.DepthLimit)
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.snapshotPending = false
+		if err != nil {
+			h.logger.Error("snapshot fetch failed", zap.Error(err))
+			// Re-kick after backoff is implicitly handled by next diff or
+			// caller-driven restart; trigger another fetch if still bootstrapping.
+			if h.state == Bootstrapping {
+				h.kickoffSnapshotLocked()
+			}
+			return
+		}
+		h.snapshot = &snap
+		h.tryAlignLocked()
+	}()
+}
+
+// tryAlignLocked is the bootstrap alignment routine. Spec:
+//
+//	Discard:      event.FinalUpdateID <= snapshot.LastUpdateID
+//	Accept first: event.FirstUpdateID <= snapshot.LastUpdateID+1
+//	              AND event.FinalUpdateID >= snapshot.LastUpdateID+1
+func (h *Handler) tryAlignLocked() {
+	if h.snapshot == nil {
+		return
+	}
+	snap := *h.snapshot
+
+	// Drop events strictly older than the snapshot (FinalUpdateID <= snapshot.LastUpdateID).
+	kept := h.buffer[:0]
+	for _, ev := range h.buffer {
+		if ev.FinalUpdateID <= snap.LastUpdateID {
+			continue
+		}
+		kept = append(kept, ev)
+	}
+	h.buffer = kept
+
+	// Find alignment event.
+	alignIdx := -1
+	for i, ev := range h.buffer {
+		if ev.FirstUpdateID <= snap.LastUpdateID+1 && ev.FinalUpdateID >= snap.LastUpdateID+1 {
+			alignIdx = i
+			break
+		}
+	}
+	if alignIdx == -1 {
+		// Alignment event not yet arrived. Keep buffering.
+		if len(h.buffer) > h.cfg.MaxBufferSize {
+			h.logger.Warn("buffer overflow while waiting for alignment, re-fetching snapshot",
+				zap.Int("buffer_size", len(h.buffer)),
+				zap.Int64("snapshot_last_update_id", snap.LastUpdateID),
+			)
+			h.buffer = h.buffer[:0]
+			h.snapshot = nil
+			h.kickoffSnapshotLocked()
+		}
+		return
+	}
+
+	// Load snapshot, apply alignment event onward.
+	h.book.Reset()
+	if loader, ok := h.book.(interface {
+		LoadSnapshot(domain.SnapshotEvent)
+	}); ok {
+		loader.LoadSnapshot(snap)
+	}
+	h.lastFinalUpdateID = snap.LastUpdateID
+
+	for i := alignIdx; i < len(h.buffer); i++ {
+		ev := h.buffer[i]
+		if err := h.book.Apply(ev); err != nil {
+			h.logger.Error("apply during bootstrap failed", zap.Error(err))
+			h.buffer = nil
+			h.snapshot = nil
+			h.transitionLocked(Resyncing)
+			h.book.Reset()
+			h.transitionLocked(Bootstrapping)
+			h.kickoffSnapshotLocked()
+			return
+		}
+		if h.lastFinalUpdateID != 0 && ev.FirstUpdateID > h.lastFinalUpdateID+1 {
+			h.logger.Warn("sequence gap during bootstrap replay",
+				zap.Int64("expected_first_update_id", h.lastFinalUpdateID+1),
+				zap.Int64("received_first_update_id", ev.FirstUpdateID),
+			)
+		}
+		h.lastFinalUpdateID = ev.FinalUpdateID
+		if err := h.repo.WriteDiff(h.ctxOrBackground(), ev); err != nil {
+			h.logger.Error("write diff failed during bootstrap replay", zap.Error(err))
+		}
+	}
+	h.buffer = nil
+	h.snapshot = nil
+	h.lastCheckpointTime = time.Now().UTC()
+	h.diffsSinceCheckpoint = 0
+	h.transitionLocked(Synced)
+}
+
+func (h *Handler) handleSyncedLocked(event domain.DiffEvent) {
+	if event.FirstUpdateID != h.lastFinalUpdateID+1 {
+		h.logger.Warn("sequence gap detected",
+			zap.Int64("expected_first_update_id", h.lastFinalUpdateID+1),
+			zap.Int64("received_first_update_id", event.FirstUpdateID),
+		)
+		h.enterResyncLocked(event)
+		return
+	}
+
+	if err := h.book.Apply(event); err != nil {
+		h.logger.Error("book apply failed", zap.Error(err))
+		h.enterResyncLocked(event)
+		return
+	}
+	h.lastFinalUpdateID = event.FinalUpdateID
+
+	if err := h.repo.WriteDiff(h.ctxOrBackground(), event); err != nil {
+		h.logger.Error("write diff failed", zap.Error(err))
+	}
+	h.diffsSinceCheckpoint++
+
+	if h.shouldCheckpointLocked() {
+		snap := h.book.Snapshot(h.cfg.DepthLimit)
+		if err := h.repo.WriteCheckpoint(h.ctxOrBackground(), snap); err != nil {
+			h.logger.Error("write checkpoint failed", zap.Error(err))
+		} else {
+			h.lastCheckpointTime = time.Now().UTC()
+			h.diffsSinceCheckpoint = 0
+		}
+	}
+}
+
+func (h *Handler) shouldCheckpointLocked() bool {
+	if h.diffsSinceCheckpoint >= h.cfg.CheckpointDiffThreshold {
+		return true
+	}
+	if !h.lastCheckpointTime.IsZero() &&
+		time.Since(h.lastCheckpointTime) >= h.cfg.CheckpointInterval {
+		return true
+	}
+	return false
+}
+
+func (h *Handler) enterResyncLocked(pending domain.DiffEvent) {
+	h.transitionLocked(Resyncing)
+	h.book.Reset()
+	h.lastFinalUpdateID = 0
+	h.diffsSinceCheckpoint = 0
+	h.lastCheckpointTime = time.Time{}
+	h.buffer = []domain.DiffEvent{pending}
+	h.snapshot = nil
+	h.transitionLocked(Bootstrapping)
+	h.kickoffSnapshotLocked()
+}
+
+func (h *Handler) ctxOrBackground() context.Context {
+	if h.ctx != nil {
+		return h.ctx
+	}
+	return context.Background()
+}
