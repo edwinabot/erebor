@@ -129,6 +129,48 @@ Repository        — TimescaleDB persistence. Write path and backtest query int
 
 The critical invariant: `OrderBook` has no knowledge of persistence. `StreamManager` has no knowledge of book state. These boundaries are enforced at the interface level.
 
+```mermaid
+flowchart TD
+    WS["Binance WebSocket<br/>Combined Stream"]
+    REST["Binance REST API<br/>/api/v3/depth"]
+    DB[("TimescaleDB<br/>order_book_diffs<br/>order_book_snapshots")]
+
+    subgraph IngestionService["erebor-ingest"]
+        SM["StreamManager<br/>―――――――――<br/>Maintains WebSocket connection<br/>Emits RawDiffEvent<br/>Owns reconnect + backoff"]
+        DP["Dispatcher<br/>―――――――――<br/>Routes events by symbol<br/>map[string]SymbolHandler"]
+
+        subgraph PerSymbol["Per-Symbol — one instance per configured symbol"]
+            SH["SymbolHandler<br/>―――――――――<br/>Bootstrap protocol state machine<br/>Owns one book lifecycle<br/>Triggers checkpoints"]
+            OB["OrderBook<br/>―――――――――<br/>In-memory sorted bid/ask maps<br/>Apply diffs · Produce snapshots<br/>decimal.Decimal — no float64"]
+        end
+
+        DF["DepthFetcher<br/>―――――――――<br/>Stateless REST client<br/>One attempt per call"]
+        RP["Repository<br/>―――――――――<br/>WriteDiff<br/>WriteCheckpoint<br/>QueryNearestCheckpoint<br/>QueryDiffs"]
+    end
+
+    WS -->|"WebSocket frames"| SM
+    SM -->|"RawDiffEvent channel"| DP
+    DP -->|"DiffEvent per symbol"| SH
+    SH -->|"Apply / Reset"| OB
+    OB -->|"Snapshot(depthLimit)"| SH
+    SH -->|"FetchSnapshot(symbol, limit)"| DF
+    DF -->|"GET /api/v3/depth"| REST
+    REST -->|"SnapshotEvent"| DF
+    DF -->|"SnapshotEvent"| SH
+    SH -->|"WriteDiff / WriteCheckpoint"| RP
+    RP -->|"INSERT"| DB
+
+    classDef external fill:#1e1e2e,stroke:#6c7086,color:#cdd6f4
+    classDef component fill:#1e3a5f,stroke:#89b4fa,color:#cdd6f4
+    classDef store fill:#1e3a2f,stroke:#a6e3a1,color:#cdd6f4
+    classDef boundary fill:#12121e,stroke:#45475a,color:#585b70
+
+    class WS,REST external
+    class SM,DP,SH,OB,DF,RP component
+    class DB store
+    class IngestionService,PerSymbol boundary
+```
+
 ---
 
 ## Bootstrap Protocol
@@ -149,6 +191,48 @@ The bootstrap procedure:
 7. Transition to SYNCED
 
 Any sequence gap detected in SYNCED state triggers an immediate transition to RESYNCING, which clears book state and re-enters BOOTSTRAPPING. A corrupted book must never be used.
+
+```mermaid
+stateDiagram-v2
+    [*] --> DISCONNECTED
+
+    DISCONNECTED --> BOOTSTRAPPING : stream connected
+
+    state BOOTSTRAPPING {
+        [*] --> Buffering
+        Buffering --> FetchingSnapshot : launch snapshot goroutine
+        FetchingSnapshot --> AligningSequence : snapshot received
+        AligningSequence --> Buffering : alignment event not yet buffered
+        AligningSequence --> LoadingBook : U ≤ lastUpdateID+1 AND u ≥ lastUpdateID+1
+        LoadingBook --> ReplayingBuffer : discard events where u ≤ lastUpdateID
+        ReplayingBuffer --> [*] : buffered events applied in sequence
+        Buffering --> [*] : buffer > MaxBufferSize — re-fetch snapshot
+    }
+
+    BOOTSTRAPPING --> SYNCED : alignment complete
+
+    state SYNCED {
+        [*] --> ApplyingDiff
+        ApplyingDiff --> ValidatingSequence : diff received
+        ValidatingSequence --> PersistingDiff : sequence valid
+        PersistingDiff --> EvaluatingCheckpoint : WriteDiff()
+        EvaluatingCheckpoint --> WritingCheckpoint : interval or count threshold exceeded
+        EvaluatingCheckpoint --> ApplyingDiff : no checkpoint due
+        WritingCheckpoint --> ApplyingDiff : WriteCheckpoint() — reset counters
+    }
+
+    SYNCED --> RESYNCING : sequence gap detected
+
+    state RESYNCING {
+        [*] --> ClearingState
+        ClearingState --> [*] : OrderBook.Reset() — log WARN with gap IDs
+    }
+
+    RESYNCING --> BOOTSTRAPPING : allocate fresh buffer
+
+    SYNCED --> DISCONNECTED : stream closed or unrecoverable error
+    DISCONNECTED --> [*] : SIGTERM / SIGINT
+```
 
 ---
 
