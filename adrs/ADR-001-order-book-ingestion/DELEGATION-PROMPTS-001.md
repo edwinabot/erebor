@@ -254,6 +254,21 @@ Do not use a mocking framework. Implement the mock by hand.
 
 ---
 
+## PROMPT-004 
+
+Having this user story: "As an erebor user I want to have a CLI feature that executes the ingestion." Implement a CLI that ingests data from Binance and persists data to TimescaleDB.
+
+Use docker to implement a TimescaleDB container, add a Makefile target to run a standalone TimescaleDB instance, mount volumes to persist data between executions.
+
+The purpose of this iteration is to integrate all services and validate the current implementation. This is meant to be used locally, production ready configurations are out of scope.
+
+
+Having this user story: "As and erebor cli user, I want erebor cli to gracefully handle SIGTERM and SIGKILL signals". Implement graceful signal handling for SIGTERM and SIGINT as stated on ADR-001
+
+See full ADR-001 spec at `adrs/ADR-001-order-book-ingestion/ADR-001-order-book-ingestion.md`
+
+---
+
 ## Prompt Maintenance Notes
 
 - Update this file when a new delegation prompt is written for a new component or service.
