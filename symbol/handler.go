@@ -187,26 +187,10 @@ func (h *Handler) tryAlignLocked() {
 	}
 	snap := *h.snapshot
 
-	// Drop events strictly older than the snapshot (FinalUpdateID <= snapshot.LastUpdateID).
-	kept := h.buffer[:0]
-	for _, ev := range h.buffer {
-		if ev.FinalUpdateID <= snap.LastUpdateID {
-			continue
-		}
-		kept = append(kept, ev)
-	}
-	h.buffer = kept
+	h.buffer = discardPreSnapshot(h.buffer, snap.LastUpdateID)
 
-	// Find alignment event.
-	alignIdx := -1
-	for i, ev := range h.buffer {
-		if ev.FirstUpdateID <= snap.LastUpdateID+1 && ev.FinalUpdateID >= snap.LastUpdateID+1 {
-			alignIdx = i
-			break
-		}
-	}
+	alignIdx := findAlignmentIndex(h.buffer, snap.LastUpdateID)
 	if alignIdx == -1 {
-		// Alignment event not yet arrived. Keep buffering.
 		if len(h.buffer) > h.cfg.MaxBufferSize {
 			h.logger.Warn("buffer overflow while waiting for alignment, re-fetching snapshot",
 				zap.Int("buffer_size", len(h.buffer)),
@@ -219,11 +203,36 @@ func (h *Handler) tryAlignLocked() {
 		return
 	}
 
-	// Load snapshot, apply alignment event onward.
+	h.replayAlignedBufferLocked(alignIdx, snap)
+}
+
+// discardPreSnapshot removes all events with FinalUpdateID <= lastUpdateID.
+func discardPreSnapshot(buf []domain.DiffEvent, lastUpdateID int64) []domain.DiffEvent {
+	kept := buf[:0]
+	for _, ev := range buf {
+		if ev.FinalUpdateID > lastUpdateID {
+			kept = append(kept, ev)
+		}
+	}
+	return kept
+}
+
+// findAlignmentIndex returns the index of the first event satisfying the
+// Binance alignment condition, or -1 if none exists.
+func findAlignmentIndex(buf []domain.DiffEvent, lastUpdateID int64) int {
+	for i, ev := range buf {
+		if ev.FirstUpdateID <= lastUpdateID+1 && ev.FinalUpdateID >= lastUpdateID+1 {
+			return i
+		}
+	}
+	return -1
+}
+
+// replayAlignedBufferLocked loads the snapshot into the book, applies all
+// buffered events from alignIdx onward, and transitions to Synced.
+func (h *Handler) replayAlignedBufferLocked(alignIdx int, snap domain.SnapshotEvent) {
 	h.book.Reset()
-	if loader, ok := h.book.(interface {
-		LoadSnapshot(domain.SnapshotEvent)
-	}); ok {
+	if loader, ok := h.book.(interface{ LoadSnapshot(domain.SnapshotEvent) }); ok {
 		loader.LoadSnapshot(snap)
 	}
 	h.lastFinalUpdateID = snap.LastUpdateID

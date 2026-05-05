@@ -21,7 +21,7 @@ func lvl(t *testing.T, price, qty string) domain.PriceLevel {
 	return domain.PriceLevel{Price: mustDec(t, price), Quantity: mustDec(t, qty)}
 }
 
-func TestOrderBook_Apply_AddNewLevel(t *testing.T) {
+func TestOrderBookApplyAddNewLevel(t *testing.T) {
 	b := book.New("BTCUSDT")
 	err := b.Apply(domain.DiffEvent{
 		Symbol:        "BTCUSDT",
@@ -41,7 +41,7 @@ func TestOrderBook_Apply_AddNewLevel(t *testing.T) {
 	require.Equal(t, int64(2), b.LastUpdateID())
 }
 
-func TestOrderBook_Apply_UpdateExistingLevel(t *testing.T) {
+func TestOrderBookApplyUpdateExistingLevel(t *testing.T) {
 	b := book.New("BTCUSDT")
 	require.NoError(t, b.Apply(domain.DiffEvent{
 		FinalUpdateID: 1,
@@ -58,7 +58,7 @@ func TestOrderBook_Apply_UpdateExistingLevel(t *testing.T) {
 	require.True(t, snap.Bids[0].Quantity.Equal(mustDec(t, "2.5")))
 }
 
-func TestOrderBook_Apply_RemoveLevelOnZeroQuantity(t *testing.T) {
+func TestOrderBookApplyRemoveLevelOnZeroQuantity(t *testing.T) {
 	b := book.New("BTCUSDT")
 	require.NoError(t, b.Apply(domain.DiffEvent{
 		FinalUpdateID: 1,
@@ -77,7 +77,7 @@ func TestOrderBook_Apply_RemoveLevelOnZeroQuantity(t *testing.T) {
 	require.True(t, snap.Bids[0].Price.Equal(mustDec(t, "99.0")))
 }
 
-func TestOrderBook_Apply_MultipleBidsAndAsksSimultaneously(t *testing.T) {
+func TestOrderBookApplyMultipleBidsAndAsksSimultaneously(t *testing.T) {
 	b := book.New("BTCUSDT")
 	require.NoError(t, b.Apply(domain.DiffEvent{
 		FinalUpdateID: 1,
@@ -106,7 +106,7 @@ func TestOrderBook_Apply_MultipleBidsAndAsksSimultaneously(t *testing.T) {
 	require.True(t, snap.Asks[2].Price.Equal(mustDec(t, "102.0")))
 }
 
-func TestOrderBook_Snapshot_LimitsToTopN(t *testing.T) {
+func TestOrderBookSnapshotLimitsToTopN(t *testing.T) {
 	cases := []struct {
 		name        string
 		insertBids  []domain.PriceLevel
@@ -155,7 +155,7 @@ func TestOrderBook_Snapshot_LimitsToTopN(t *testing.T) {
 	}
 }
 
-func TestOrderBook_Reset(t *testing.T) {
+func TestOrderBookReset(t *testing.T) {
 	b := book.New("BTCUSDT")
 	require.NoError(t, b.Apply(domain.DiffEvent{
 		FinalUpdateID: 5,

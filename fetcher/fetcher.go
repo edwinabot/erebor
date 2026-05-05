@@ -51,7 +51,7 @@ func (f *HTTPFetcher) FetchSnapshot(ctx context.Context, symbol string, limit in
 	if err != nil {
 		return domain.SnapshotEvent{}, fmt.Errorf("http get: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

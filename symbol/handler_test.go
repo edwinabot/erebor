@@ -138,10 +138,10 @@ func waitFor(t *testing.T, cond func() bool, timeout time.Duration, msg string) 
 	t.Fatalf("timed out waiting for: %s", msg)
 }
 
-// TestBootstrap_AlignmentEventArrivesBeforeSnapshot:
+// TestBootstrapAlignmentEventArrivesBeforeSnapshot:
 // Diffs are buffered while the snapshot is in-flight; once the snapshot
 // returns, the buffered events past the alignment boundary are replayed.
-func TestBootstrap_AlignmentEventArrivesBeforeSnapshot(t *testing.T) {
+func TestBootstrapAlignmentEventArrivesBeforeSnapshot(t *testing.T) {
 	hold := make(chan struct{})
 	mf := &MockFetcher{
 		responses: []domain.SnapshotEvent{snap(100)},
@@ -172,10 +172,10 @@ func TestBootstrap_AlignmentEventArrivesBeforeSnapshot(t *testing.T) {
 	require.Equal(t, int64(103), repo.Diffs[1].FinalUpdateID)
 }
 
-// TestBootstrap_AlignmentExactBoundary:
+// TestBootstrapAlignmentExactBoundary:
 // A diff whose FirstUpdateID == snapshot.LastUpdateID+1 is the alignment
 // event (boundary case U == lastUpdateID+1, u == lastUpdateID+1).
-func TestBootstrap_AlignmentExactBoundary(t *testing.T) {
+func TestBootstrapAlignmentExactBoundary(t *testing.T) {
 	hold := make(chan struct{})
 	mf := &MockFetcher{responses: []domain.SnapshotEvent{snap(100)}, hold: hold}
 	repo := &MockRepository{}
@@ -194,9 +194,9 @@ func TestBootstrap_AlignmentExactBoundary(t *testing.T) {
 	require.Equal(t, int64(101), repo.Diffs[0].FinalUpdateID)
 }
 
-// TestBootstrap_DiscardsEventsBeforeSnapshot:
+// TestBootstrapDiscardsEventsBeforeSnapshot:
 // Events with FinalUpdateID <= snapshot.LastUpdateID must be discarded.
-func TestBootstrap_DiscardsEventsBeforeSnapshot(t *testing.T) {
+func TestBootstrapDiscardsEventsBeforeSnapshot(t *testing.T) {
 	hold := make(chan struct{})
 	mf := &MockFetcher{responses: []domain.SnapshotEvent{snap(100)}, hold: hold}
 	repo := &MockRepository{}
@@ -219,10 +219,10 @@ func TestBootstrap_DiscardsEventsBeforeSnapshot(t *testing.T) {
 	require.Equal(t, int64(102), repo.Diffs[0].FinalUpdateID)
 }
 
-// TestBootstrap_BufferOverflowTriggersResnapshot:
+// TestBootstrapBufferOverflowTriggersResnapshot:
 // If the buffer exceeds MaxBufferSize while waiting for the alignment
 // event, the handler must re-fetch the snapshot.
-func TestBootstrap_BufferOverflowTriggersResnapshot(t *testing.T) {
+func TestBootstrapBufferOverflowTriggersResnapshot(t *testing.T) {
 	// First snapshot has lastUpdateID=10 — the first batch of events all
 	// fall before it, so no alignment is found. After overflow, second
 	// snapshot returns lastUpdateID=20 and aligns with the next event.
