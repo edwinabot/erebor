@@ -102,4 +102,3 @@ func parseLevels(in [][]string) ([]domain.PriceLevel, error) {
 	}
 	return out, nil
 }
-
