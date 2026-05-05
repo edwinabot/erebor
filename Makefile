@@ -61,6 +61,19 @@ migrate:
 	    $(COMPOSE) exec -T $(DB_SERVICE) psql "$$DSN" -v ON_ERROR_STOP=1 -f - < $(MIGRATION); \
 	fi
 
+psql:
+	@DSN="$${DATABASE_DSN:-$(LOCAL_DSN)}"; \
+	if [ -z "$$DSN" ]; then \
+	    echo "DATABASE_DSN is required"; exit 1; \
+	fi; \
+	if psql --version >/dev/null 2>&1; then \
+	    echo "launching host psql to $$DSN"; \
+	    psql "$$DSN"; \
+	else \
+	    echo "host psql not found — launching docker compose exec psql"; \
+	    $(COMPOSE) exec -it $(DB_SERVICE) psql "$$DSN"; \
+	fi
+
 # ---------- End-to-end local run ----------
 
 # `make run` brings up the database, applies the migration, and runs the
