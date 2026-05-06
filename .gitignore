@@ -1,3 +1,5 @@
 bin/
 .env
 config.yaml
+coverage.out
+coverage.html

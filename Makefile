@@ -1,4 +1,4 @@
-.PHONY: build test lint migrate db-up db-down db-logs db-wait db-reset run dev clean
+.PHONY: build test cover cover-html lint fmt migrate db-up db-down db-logs db-wait db-reset run dev clean
 
 BIN        := bin/erebor-ingest
 MAIN       := ./cmd/erebor-ingest
@@ -16,6 +16,16 @@ build:
 
 test:
 	go test -race ./...
+
+cover:
+	go test -race -covermode=atomic -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out | tail -n 1
+
+cover-html: cover
+	go tool cover -html=coverage.out
+
+fmt:
+	gofmt -w .
 
 lint:
 	golangci-lint run
