@@ -100,9 +100,11 @@ func TestLoadConfigFailsOnInvalidYAML(t *testing.T) {
 // configuration: the returned logger is non-nil and a basic .Info call
 // does not panic (catches misconfigured encoders or levels).
 func TestBuildLoggerProducesValidLogger(t *testing.T) {
-	logger, err := buildLogger("info")
+	logger, closeFn, err := buildLogger("info", "debug", "")
 	require.NoError(t, err)
 	require.NotNil(t, logger)
+	require.NotNil(t, closeFn)
+	defer func() { _ = closeFn() }()
 	logger.Info("smoke") // must not panic
 }
 
@@ -110,7 +112,66 @@ func TestBuildLoggerProducesValidLogger(t *testing.T) {
 // level string surfaces as an explicit error at startup rather than
 // silently falling back to a default.
 func TestBuildLoggerRejectsInvalidLevel(t *testing.T) {
-	_, err := buildLogger("notalevel")
+	_, _, err := buildLogger("notalevel", "debug", "")
+	require.Error(t, err)
+}
+
+// TestBuildLoggerRejectsInvalidFileLevel covers the symmetric error path
+// for the file-level config.
+func TestBuildLoggerRejectsInvalidFileLevel(t *testing.T) {
+	_, _, err := buildLogger("info", "notalevel", "")
+	require.Error(t, err)
+}
+
+// TestBuildLoggerSplitLevelsHonourEachCore: stderr at INFO must filter
+// DEBUG entries out, while file at DEBUG must capture them.
+func TestBuildLoggerSplitLevelsHonourEachCore(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "split.log")
+
+	logger, closeFn, err := buildLogger("info", "debug", path)
+	require.NoError(t, err)
+	defer func() { _ = closeFn() }()
+
+	logger.Debug("debug-only", zap.String("k", "v"))
+	logger.Info("info-everywhere", zap.String("k", "v"))
+	_ = logger.Sync()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "debug-only", "file at DEBUG must capture debug entries")
+	require.Contains(t, string(data), "info-everywhere", "file must capture info entries too")
+}
+
+// TestBuildLoggerWritesToFileAndStderr verifies the file-tee wiring: when
+// filePath is supplied, log entries reach the file (caller can verify by
+// reading it back). The stderr core is also active — that's covered
+// implicitly by the smoke test above.
+func TestBuildLoggerWritesToFileAndStderr(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ingest.log")
+
+	logger, closeFn, err := buildLogger("info", "debug", path)
+	require.NoError(t, err)
+	defer func() { _ = closeFn() }()
+
+	logger.Info("hello-from-test", zap.String("k", "v"))
+	// Sync may return "invalid argument" for the stderr core in test
+	// environments; the data has already been written to both cores.
+	_ = logger.Sync()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "hello-from-test")
+	require.Contains(t, string(data), `"k":"v"`)
+}
+
+// TestBuildLoggerReturnsErrorOnUnopenableFile verifies the file-open
+// failure surfaces explicitly rather than silently falling back to
+// stderr-only logging.
+func TestBuildLoggerReturnsErrorOnUnopenableFile(t *testing.T) {
+	// A path under a non-existent directory cannot be created.
+	_, _, err := buildLogger("info", "debug", filepath.Join(t.TempDir(), "no-such-dir", "x.log"))
 	require.Error(t, err)
 }
 

@@ -164,6 +164,9 @@ func (h *Handler) kickoffSnapshotLocked() {
 
 func (h *Handler) runSnapshotFetch(ctx context.Context) {
 	defer h.bootstrapG.Done()
+	h.logger.Info("fetching snapshot",
+		zap.Int("depth_limit", h.cfg.DepthLimit),
+	)
 	snap, err := h.fetcher.FetchSnapshot(ctx, h.cfg.Symbol, h.cfg.DepthLimit)
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -225,7 +228,12 @@ func (h *Handler) tryAlignLocked() {
 			h.buffer = h.buffer[:0]
 			h.snapshot = nil
 			h.kickoffSnapshotLocked()
+			return
 		}
+		h.logger.Debug("alignment pending, continuing to buffer",
+			zap.Int("buffer_size", len(h.buffer)),
+			zap.Int64("snapshot_last_update_id", snap.LastUpdateID),
+		)
 		return
 	}
 
@@ -257,6 +265,11 @@ func findAlignmentIndex(buf []domain.DiffEvent, lastUpdateID int64) int {
 // replayAlignedBufferLocked loads the snapshot into the book, applies all
 // buffered events from alignIdx onward, and transitions to Synced.
 func (h *Handler) replayAlignedBufferLocked(alignIdx int, snap domain.SnapshotEvent) {
+	h.logger.Info("bootstrap alignment found",
+		zap.Int("align_index", alignIdx),
+		zap.Int("events_to_replay", len(h.buffer)-alignIdx),
+		zap.Int64("snapshot_last_update_id", snap.LastUpdateID),
+	)
 	h.book.Reset()
 	if loader, ok := h.book.(interface{ LoadSnapshot(domain.SnapshotEvent) }); ok {
 		loader.LoadSnapshot(snap)
@@ -285,6 +298,12 @@ func (h *Handler) replayAlignedBufferLocked(alignIdx int, snap domain.SnapshotEv
 		if err := h.repo.WriteDiff(h.ctxOrBackground(), ev); err != nil {
 			h.logger.Error("write diff failed during bootstrap replay", zap.Error(err))
 		}
+		h.logger.Debug("diff applied (replay)",
+			zap.Int64("first_update_id", ev.FirstUpdateID),
+			zap.Int64("final_update_id", ev.FinalUpdateID),
+			zap.Int("bid_levels", len(ev.Bids)),
+			zap.Int("ask_levels", len(ev.Asks)),
+		)
 	}
 	h.buffer = nil
 	h.snapshot = nil
@@ -315,6 +334,13 @@ func (h *Handler) handleSyncedLocked(event domain.DiffEvent) {
 	}
 	h.diffsSinceCheckpoint++
 
+	h.logger.Debug("diff applied",
+		zap.Int64("first_update_id", event.FirstUpdateID),
+		zap.Int64("final_update_id", event.FinalUpdateID),
+		zap.Int("bid_levels", len(event.Bids)),
+		zap.Int("ask_levels", len(event.Asks)),
+	)
+
 	if h.shouldCheckpointLocked() {
 		snap := h.book.Snapshot(h.cfg.DepthLimit)
 		if err := h.repo.WriteCheckpoint(h.ctxOrBackground(), snap); err != nil {
@@ -322,6 +348,11 @@ func (h *Handler) handleSyncedLocked(event domain.DiffEvent) {
 		} else {
 			h.lastCheckpointTime = time.Now().UTC()
 			h.diffsSinceCheckpoint = 0
+			h.logger.Debug("checkpoint written",
+				zap.Int64("last_update_id", snap.LastUpdateID),
+				zap.Int("bid_levels", len(snap.Bids)),
+				zap.Int("ask_levels", len(snap.Asks)),
+			)
 		}
 	}
 }

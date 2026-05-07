@@ -3,7 +3,13 @@ binance:
   rest_base_url: "https://api.binance.com"
 
 log:
+  # stderr level — operator-facing, kept terse.
   level: info
+  # file level — verbose persistent record (every diff and checkpoint).
+  file_level: debug
+  # file_path: empty disables file logging (stderr only).
+  # When set, logs are tee'd to both stderr and the file (append mode).
+  file_path: erebor-ingest.log
 
 health:
   addr: ":8080"

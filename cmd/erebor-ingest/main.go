@@ -40,7 +40,9 @@ type appConfig struct {
 	} `mapstructure:"binance"`
 	Symbols []symbolConfig `mapstructure:"symbols"`
 	Log     struct {
-		Level string `mapstructure:"level"`
+		Level     string `mapstructure:"level"`      // stderr level
+		FileLevel string `mapstructure:"file_level"` // file level (defaults to debug)
+		FilePath  string `mapstructure:"file_path"`
 	} `mapstructure:"log"`
 	Health struct {
 		Addr string `mapstructure:"addr"`
@@ -62,11 +64,14 @@ func main() {
 		os.Exit(2)
 	}
 
-	logger, err := buildLogger(cfg.Log.Level)
+	logger, closeLogFile, err := buildLogger(cfg.Log.Level, cfg.Log.FileLevel, cfg.Log.FilePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "build logger: %v\n", err)
 		os.Exit(2)
 	}
+	// LIFO: closeLogFile registered first so logger.Sync flushes BEFORE the
+	// file is closed.
+	defer func() { _ = closeLogFile() }()
 	defer func() { _ = logger.Sync() }()
 
 	rootLogger := logger.With(zap.String("component", "main"))
@@ -204,20 +209,58 @@ func loadConfig(path string) (appConfig, error) {
 	return cfg, nil
 }
 
-func buildLogger(level string) (*zap.Logger, error) {
-	zcfg := zap.NewProductionConfig()
-	zcfg.EncoderConfig.TimeKey = "ts"
-	zcfg.EncoderConfig.MessageKey = "msg"
-	zcfg.EncoderConfig.LevelKey = "level"
-	zcfg.EncoderConfig.EncodeTime = zapcore.RFC3339NanoTimeEncoder
-	if level != "" {
-		var lvl zap.AtomicLevel
-		if err := lvl.UnmarshalText([]byte(level)); err != nil {
-			return nil, fmt.Errorf("invalid log level %q: %w", level, err)
-		}
-		zcfg.Level = lvl
+// buildLogger composes a zap.Logger that writes JSON to stderr and,
+// optionally, to a file at filePath (appending). The two cores have
+// independent levels so the operator can run a quiet stderr (e.g. info)
+// while persisting a verbose file (e.g. debug). The returned closer must
+// be called after logger.Sync to release the file handle; if no file is
+// configured it is a no-op.
+//
+// Defaults: stderrLevel = info, fileLevel = debug.
+func buildLogger(stderrLevel, fileLevel, filePath string) (*zap.Logger, func() error, error) {
+	zcfg := zap.NewProductionEncoderConfig()
+	zcfg.TimeKey = "ts"
+	zcfg.MessageKey = "msg"
+	zcfg.LevelKey = "level"
+	zcfg.EncodeTime = zapcore.RFC3339NanoTimeEncoder
+
+	stderrLvl, err := parseLevel(stderrLevel, zapcore.InfoLevel)
+	if err != nil {
+		return nil, nil, fmt.Errorf("stderr log level: %w", err)
 	}
-	return zcfg.Build()
+	fileLvl, err := parseLevel(fileLevel, zapcore.DebugLevel)
+	if err != nil {
+		return nil, nil, fmt.Errorf("file log level: %w", err)
+	}
+
+	encoder := zapcore.NewJSONEncoder(zcfg)
+	cores := []zapcore.Core{
+		zapcore.NewCore(encoder, zapcore.Lock(os.Stderr), stderrLvl),
+	}
+
+	closer := func() error { return nil }
+	if filePath != "" {
+		f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return nil, nil, fmt.Errorf("open log file %q: %w", filePath, err)
+		}
+		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(f), fileLvl))
+		closer = f.Close
+	}
+
+	logger := zap.New(zapcore.NewTee(cores...), zap.AddCaller())
+	return logger, closer, nil
+}
+
+func parseLevel(s string, fallback zapcore.Level) (zap.AtomicLevel, error) {
+	lvl := zap.NewAtomicLevelAt(fallback)
+	if s == "" {
+		return lvl, nil
+	}
+	if err := lvl.UnmarshalText([]byte(s)); err != nil {
+		return lvl, fmt.Errorf("invalid level %q: %w", s, err)
+	}
+	return lvl, nil
 }
 
 func startHealthServer(addr string, handlers []*symbol.Handler, logger *zap.Logger) *http.Server {
