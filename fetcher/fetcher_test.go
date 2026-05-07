@@ -11,6 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestFetchSnapshotHappyPath verifies the end-to-end REST call: that the
+// fetcher hits /api/v3/depth with the expected query parameters
+// (uppercase symbol, configured limit) and that the response body is
+// decoded into a SnapshotEvent with decimal-precise prices/quantities.
 func TestFetchSnapshotHappyPath(t *testing.T) {
 	const body = `{
 		"lastUpdateId": 12345,
@@ -120,6 +124,9 @@ func TestFetchSnapshotPropagatesContextCancellation(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestFetchSnapshotDefaultsLimitWhenZero covers the limit<=0 default
+// branch: passing 0 must result in the documented default (50) being sent
+// in the query string.
 func TestFetchSnapshotDefaultsLimitWhenZero(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

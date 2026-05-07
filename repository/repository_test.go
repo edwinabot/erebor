@@ -29,6 +29,9 @@ const (
 	priceLevelC = "100.60"
 )
 
+// TestLevelsJSONRoundTrip verifies that levelsToJSON / jsonToLevels are
+// exact inverses with no precision loss — including a sub-cent price like
+// "0.00001234" that float64 could not represent faithfully.
 func TestLevelsJSONRoundTrip(t *testing.T) {
 	in := levels(
 		[2]string{priceLevelA, "1.5"},
@@ -72,6 +75,9 @@ func TestJSONToLevelsRejectsMalformedJSON(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestLevelsJSONHandlesEmptyInput verifies the boundary cases: a nil byte
+// slice on the decode side returns nil (not an error), and a nil/empty
+// slice on the encode side produces the literal "[]".
 func TestLevelsJSONHandlesEmptyInput(t *testing.T) {
 	out, err := jsonToLevels(nil)
 	require.NoError(t, err)

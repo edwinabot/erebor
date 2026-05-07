@@ -370,8 +370,8 @@ func TestHandleDiffWithoutStartUsesBackgroundContext(t *testing.T) {
 // HandleDiff. The handler clears the buffer and (defensively) calls
 // kickoffSnapshotLocked.
 //
-// TODO: EDGE CASE FOUND (not fixed per instructions): when overflow occurs while
-// the first snapshot fetch is still in flight, the snapshotPending guard
+// Edge case observed (left as-is per instructions): when overflow occurs
+// while the first snapshot fetch is still in flight, the snapshotPending guard
 // makes the re-kick a no-op. The original snapshot, when it returns, finds
 // an empty buffer and silently waits. This test verifies the OBSERVED
 // behaviour: events buffered before overflow are dropped (never persisted)

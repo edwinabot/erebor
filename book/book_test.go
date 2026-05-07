@@ -21,6 +21,9 @@ func lvl(t *testing.T, price, qty string) domain.PriceLevel {
 	return domain.PriceLevel{Price: mustDec(t, price), Quantity: mustDec(t, qty)}
 }
 
+// TestOrderBookApplyAddNewLevel verifies that applying a diff with
+// previously-unseen price levels inserts them on the correct side and that
+// LastUpdateID is advanced to the diff's FinalUpdateID.
 func TestOrderBookApplyAddNewLevel(t *testing.T) {
 	b := book.New("BTCUSDT")
 	err := b.Apply(domain.DiffEvent{
@@ -41,6 +44,9 @@ func TestOrderBookApplyAddNewLevel(t *testing.T) {
 	require.Equal(t, int64(2), b.LastUpdateID())
 }
 
+// TestOrderBookApplyUpdateExistingLevel verifies that a diff carrying a
+// price level already present in the book replaces its quantity rather
+// than creating a duplicate entry.
 func TestOrderBookApplyUpdateExistingLevel(t *testing.T) {
 	b := book.New("BTCUSDT")
 	require.NoError(t, b.Apply(domain.DiffEvent{
@@ -58,6 +64,9 @@ func TestOrderBookApplyUpdateExistingLevel(t *testing.T) {
 	require.True(t, snap.Bids[0].Quantity.Equal(mustDec(t, "2.5")))
 }
 
+// TestOrderBookApplyRemoveLevelOnZeroQuantity verifies the Binance delete
+// convention: a diff entry with quantity "0" removes the price level from
+// the book entirely (other levels untouched).
 func TestOrderBookApplyRemoveLevelOnZeroQuantity(t *testing.T) {
 	b := book.New("BTCUSDT")
 	require.NoError(t, b.Apply(domain.DiffEvent{
@@ -77,6 +86,9 @@ func TestOrderBookApplyRemoveLevelOnZeroQuantity(t *testing.T) {
 	require.True(t, snap.Bids[0].Price.Equal(mustDec(t, "99.0")))
 }
 
+// TestOrderBookApplyMultipleBidsAndAsksSimultaneously verifies that a
+// single Apply call can carry multiple bid and ask updates and that the
+// resulting Snapshot orders bids descending and asks ascending.
 func TestOrderBookApplyMultipleBidsAndAsksSimultaneously(t *testing.T) {
 	b := book.New("BTCUSDT")
 	require.NoError(t, b.Apply(domain.DiffEvent{
@@ -106,6 +118,9 @@ func TestOrderBookApplyMultipleBidsAndAsksSimultaneously(t *testing.T) {
 	require.True(t, snap.Asks[2].Price.Equal(mustDec(t, "102.0")))
 }
 
+// TestOrderBookSnapshotLimitsToTopN verifies the depth-truncation contract
+// of Snapshot(N): only the top-N price levels per side are emitted, with
+// the correct ordering (best-bid first, best-ask first).
 func TestOrderBookSnapshotLimitsToTopN(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -155,6 +170,11 @@ func TestOrderBookSnapshotLimitsToTopN(t *testing.T) {
 	}
 }
 
+// TestOrderBookLoadSnapshotReplacesState verifies the bootstrap entry
+// point: LoadSnapshot wipes any prior book state, populates bids and asks
+// from the supplied snapshot, sets LastUpdateID to the snapshot's value,
+// and silently drops any zero-quantity levels in the input (defence
+// against a malformed snapshot from upstream).
 func TestOrderBookLoadSnapshotReplacesState(t *testing.T) {
 	b := book.New("BTCUSDT")
 	require.NoError(t, b.Apply(domain.DiffEvent{
@@ -185,6 +205,8 @@ func TestOrderBookLoadSnapshotReplacesState(t *testing.T) {
 	require.True(t, snap.Asks[0].Price.Equal(mustDec(t, "101")))
 }
 
+// TestOrderBookReset verifies that Reset clears all bid/ask state and
+// zeroes LastUpdateID, leaving the book ready for a fresh bootstrap.
 func TestOrderBookReset(t *testing.T) {
 	b := book.New("BTCUSDT")
 	require.NoError(t, b.Apply(domain.DiffEvent{

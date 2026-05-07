@@ -63,6 +63,11 @@ func rawEvent(sym string, first, final int64, ts int64) stream.RawDiffEvent {
 	}
 }
 
+// TestDispatcherRoutesEventsByUpperCaseSymbol verifies the core routing
+// contract: each raw event is converted to a domain.DiffEvent and delivered
+// to the handler keyed by the upper-cased symbol. Lower-case wire symbols
+// must still match upper-case registrations, and events for unknown
+// symbols are silently dropped.
 func TestDispatcherRoutesEventsByUpperCaseSymbol(t *testing.T) {
 	btc := newRecordingHandler()
 	eth := newRecordingHandler()
@@ -183,6 +188,10 @@ func TestDispatcherSkipsFrameWithUnparseablePrice(t *testing.T) {
 	require.Empty(t, good.snapshot(), "frame with bad price was dropped")
 }
 
+// TestDispatcherExitsWhenChannelClosed verifies the shutdown contract:
+// when the upstream events channel is closed (i.e. StreamManager.Close has
+// drained and closed it), Dispatcher.Run returns cleanly without requiring
+// ctx cancellation.
 func TestDispatcherExitsWhenChannelClosed(t *testing.T) {
 	dp := dispatch.New(map[string]symbol.SymbolHandler{}, zap.NewNop())
 	events := make(chan stream.RawDiffEvent)

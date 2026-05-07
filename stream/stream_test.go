@@ -18,6 +18,10 @@ import (
 
 const unreachableWS = "ws://127.0.0.1:1"
 
+// TestBuildURLComposesCombinedStream verifies the Binance combined-stream
+// URL format: each symbol is lower-cased and suffixed with @depth, joined
+// by '/' as the value of the streams query parameter, attached to the
+// /stream path on the configured base.
 func TestBuildURLComposesCombinedStream(t *testing.T) {
 	got, err := buildURL("wss://stream.binance.com:9443", []string{"BTCUSDT", "ETHUSDT"})
 	require.NoError(t, err)
@@ -30,17 +34,25 @@ func TestBuildURLComposesCombinedStream(t *testing.T) {
 	require.Equal(t, "btcusdt@depth/ethusdt@depth", u.Query().Get("streams"))
 }
 
+// TestBuildURLTrimsTrailingSlash guards against double-slash URLs when the
+// caller supplies a base URL with a trailing '/'.
 func TestBuildURLTrimsTrailingSlash(t *testing.T) {
 	got, err := buildURL("wss://example.com/", []string{"BTCUSDT"})
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(got, "wss://example.com/stream?"), "got=%s", got)
 }
 
+// TestBuildURLRejectsEmptySymbolList verifies the precondition check:
+// callers must supply at least one symbol, otherwise the WS URL is
+// meaningless and the manager refuses to connect.
 func TestBuildURLRejectsEmptySymbolList(t *testing.T) {
 	_, err := buildURL("wss://example.com", nil)
 	require.Error(t, err)
 }
 
+// TestRawDiffEventJSONUnmarshal pins down the wire-format mapping: the
+// Binance combined-stream envelope ({stream, data:{e,E,s,U,u,b,a}}) must
+// decode into RawDiffEvent fields without any field-tag drift.
 func TestRawDiffEventJSONUnmarshal(t *testing.T) {
 	const wire = `{
 		"stream": "btcusdt@depth",

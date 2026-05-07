@@ -19,12 +19,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// TestRequireEnvAllPresent verifies the happy path of the credential
+// gate: when every named environment variable is set to a non-empty
+// value, requireEnv returns nil.
 func TestRequireEnvAllPresent(t *testing.T) {
 	t.Setenv("FOO", "1")
 	t.Setenv("BAR", "2")
 	require.NoError(t, requireEnv("FOO", "BAR"))
 }
 
+// TestRequireEnvReportsAllMissing verifies that requireEnv aggregates all
+// missing variables in a single error message (no early return on the
+// first missing one) and does not mention variables that are present.
 func TestRequireEnvReportsAllMissing(t *testing.T) {
 	t.Setenv("FOO_PRESENT", "1")
 	// Deliberately leave FOO_MISSING_A and FOO_MISSING_B unset.
@@ -38,6 +44,11 @@ func TestRequireEnvReportsAllMissing(t *testing.T) {
 	require.NotContains(t, err.Error(), "FOO_PRESENT")
 }
 
+// TestLoadConfigParsesYAMLAndAppliesDefaults verifies two concerns
+// together: viper applies the registered defaults for keys absent from
+// the YAML (Binance URLs, health addr), and values that the YAML does
+// supply (log.level, the symbols block) override correctly with proper
+// type coercion (e.g. "500ms" → time.Duration).
 func TestLoadConfigParsesYAMLAndAppliesDefaults(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -85,6 +96,9 @@ func TestLoadConfigFailsOnInvalidYAML(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestBuildLoggerProducesValidLogger smoke-tests the production zap
+// configuration: the returned logger is non-nil and a basic .Info call
+// does not panic (catches misconfigured encoders or levels).
 func TestBuildLoggerProducesValidLogger(t *testing.T) {
 	logger, err := buildLogger("info")
 	require.NoError(t, err)
@@ -92,6 +106,9 @@ func TestBuildLoggerProducesValidLogger(t *testing.T) {
 	logger.Info("smoke") // must not panic
 }
 
+// TestBuildLoggerRejectsInvalidLevel verifies that an unrecognised log
+// level string surfaces as an explicit error at startup rather than
+// silently falling back to a default.
 func TestBuildLoggerRejectsInvalidLevel(t *testing.T) {
 	_, err := buildLogger("notalevel")
 	require.Error(t, err)
@@ -131,6 +148,11 @@ func newSyncedHandler(t *testing.T, snapshotLastID int64) *symbol.Handler {
 	return nil
 }
 
+// TestStartHealthServerReportsOKWhenAnySymbolSynced verifies the ADR
+// health contract: the endpoint returns 200 with body {"status":"ok"} as
+// soon as ANY registered symbol handler is in the Synced state. The mux
+// is exercised directly via httptest.NewRecorder for deterministic
+// scheduling (no race against the listener goroutine).
 func TestStartHealthServerReportsOKWhenAnySymbolSynced(t *testing.T) {
 	h := newSyncedHandler(t, 100)
 	srv := startHealthServer("127.0.0.1:0", []*symbol.Handler{h}, zap.NewNop())
@@ -152,6 +174,11 @@ func TestStartHealthServerReportsOKWhenAnySymbolSynced(t *testing.T) {
 	require.Equal(t, "ok", body["status"])
 }
 
+// TestStartHealthServerReportsDegradedWhenNoSymbolSynced verifies the
+// negative case: with all handlers still Disconnected (Start never
+// called), the endpoint returns 503 with body {"status":"degraded"} so
+// that an orchestrator does not route traffic to a not-yet-bootstrapped
+// instance.
 func TestStartHealthServerReportsDegradedWhenNoSymbolSynced(t *testing.T) {
 	df := &healthMockFetcher{snapshotLastID: 100}
 	repo := &healthMockRepo{}
