@@ -30,6 +30,9 @@ fmt:
 lint:
 	golangci-lint run
 
+qlty:
+	qlty check --all
+
 # ---------- Database lifecycle (local dev only) ----------
 
 db-up:

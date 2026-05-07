@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(EREBOR_TEST_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" go test -race -cover ./...)",
+      "Bash(EREBOR_TEST_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" go test -race ./...)"
+    ]
+  }
+}

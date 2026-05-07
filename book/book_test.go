@@ -155,6 +155,36 @@ func TestOrderBookSnapshotLimitsToTopN(t *testing.T) {
 	}
 }
 
+func TestOrderBookLoadSnapshotReplacesState(t *testing.T) {
+	b := book.New("BTCUSDT")
+	require.NoError(t, b.Apply(domain.DiffEvent{
+		FinalUpdateID: 1,
+		Bids:          []domain.PriceLevel{lvl(t, "50", "5")},
+		Asks:          []domain.PriceLevel{lvl(t, "60", "6")},
+	}))
+
+	b.LoadSnapshot(domain.SnapshotEvent{
+		Symbol:       "BTCUSDT",
+		LastUpdateID: 100,
+		Bids: []domain.PriceLevel{
+			lvl(t, "100", "1"),
+			lvl(t, "99", "2"),
+			lvl(t, "98.5", "0"), // zero qty levels are dropped on load
+		},
+		Asks: []domain.PriceLevel{
+			lvl(t, "101", "1"),
+		},
+	})
+
+	require.Equal(t, int64(100), b.LastUpdateID())
+	snap := b.Snapshot(10)
+	require.Len(t, snap.Bids, 2)
+	require.True(t, snap.Bids[0].Price.Equal(mustDec(t, "100")))
+	require.True(t, snap.Bids[1].Price.Equal(mustDec(t, "99")))
+	require.Len(t, snap.Asks, 1)
+	require.True(t, snap.Asks[0].Price.Equal(mustDec(t, "101")))
+}
+
 func TestOrderBookReset(t *testing.T) {
 	b := book.New("BTCUSDT")
 	require.NoError(t, b.Apply(domain.DiffEvent{

@@ -219,6 +219,121 @@ func TestBootstrapDiscardsEventsBeforeSnapshot(t *testing.T) {
 	require.Equal(t, int64(102), repo.Diffs[0].FinalUpdateID)
 }
 
+// reachSynced runs the standard bootstrap dance and returns once the
+// handler is in the Synced state. snapshotLastID is what the mock fetcher
+// will return; it must align with the alignment diff supplied by the test.
+func reachSynced(t *testing.T, h *symbol.Handler, snapshotLastID int64) {
+	t.Helper()
+	// First diff transitions Disconnected → Bootstrapping and triggers the
+	// snapshot fetch. Its range must straddle snapshotLastID+1.
+	h.HandleDiff(diff(snapshotLastID, snapshotLastID+1))
+	waitFor(t, func() bool { return h.State() == symbol.Synced }, time.Second, "Synced")
+}
+
+// TestSyncedAppliesAndPersistsSequencedDiffs verifies the steady-state path:
+// once Synced, each contiguous diff is applied to the book and persisted.
+func TestSyncedAppliesAndPersistsSequencedDiffs(t *testing.T) {
+	mf := &MockFetcher{responses: []domain.SnapshotEvent{snap(100)}}
+	repo := &MockRepository{}
+	h, _ := newHandler(t, mf, repo, 100)
+
+	h.Start(context.Background())
+	reachSynced(t, h, 100)
+
+	// First diff (100..101) applied during bootstrap replay; lastFinalID = 101.
+	// Now feed contiguous diffs in Synced.
+	h.HandleDiff(diff(102, 103))
+	h.HandleDiff(diff(104, 105))
+	h.HandleDiff(diff(106, 107))
+
+	require.Equal(t, symbol.Synced, h.State())
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	require.Len(t, repo.Diffs, 4, "1 alignment diff + 3 synced diffs")
+	require.Equal(t, int64(101), repo.Diffs[0].FinalUpdateID)
+	require.Equal(t, int64(103), repo.Diffs[1].FinalUpdateID)
+	require.Equal(t, int64(105), repo.Diffs[2].FinalUpdateID)
+	require.Equal(t, int64(107), repo.Diffs[3].FinalUpdateID)
+}
+
+// TestSyncedFiresCheckpointAfterDiffThreshold drives contiguous diffs through
+// the Synced path with a low diff-count threshold.
+func TestSyncedFiresCheckpointAfterDiffThreshold(t *testing.T) {
+	mf := &MockFetcher{responses: []domain.SnapshotEvent{snap(100)}}
+	repo := &MockRepository{}
+	ob := book.New("BTCUSDT")
+	h := symbol.NewHandler(symbol.Config{
+		Symbol:                  "BTCUSDT",
+		DepthLimit:              50,
+		CheckpointInterval:      time.Hour, // disable wall-clock trigger
+		CheckpointDiffThreshold: 3,         // count trigger
+		MaxBufferSize:           100,
+	}, ob, mf, repo, zap.NewNop())
+
+	h.Start(context.Background())
+	reachSynced(t, h, 100)
+
+	h.HandleDiff(diff(102, 103))
+	h.HandleDiff(diff(104, 105))
+	h.HandleDiff(diff(106, 107)) // 3rd post-Synced diff → count threshold
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	require.GreaterOrEqual(t, len(repo.Checkpoints), 1)
+	cp := repo.Checkpoints[0]
+	require.Equal(t, "BTCUSDT", cp.Symbol)
+	require.GreaterOrEqual(t, cp.LastUpdateID, int64(107))
+}
+
+// TestSyncedFiresCheckpointAfterIntervalElapsed uses a short interval to
+// force the wall-clock trigger.
+func TestSyncedFiresCheckpointAfterIntervalElapsed(t *testing.T) {
+	mf := &MockFetcher{responses: []domain.SnapshotEvent{snap(100)}}
+	repo := &MockRepository{}
+	ob := book.New("BTCUSDT")
+	h := symbol.NewHandler(symbol.Config{
+		Symbol:                  "BTCUSDT",
+		DepthLimit:              50,
+		CheckpointInterval:      10 * time.Millisecond,
+		CheckpointDiffThreshold: 1_000_000,
+		MaxBufferSize:           100,
+	}, ob, mf, repo, zap.NewNop())
+
+	h.Start(context.Background())
+	reachSynced(t, h, 100)
+
+	time.Sleep(20 * time.Millisecond)
+	h.HandleDiff(diff(102, 103))
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	require.GreaterOrEqual(t, len(repo.Checkpoints), 1)
+}
+
+// TestStateMethodReturnsCurrent sanity-checks the State() observability
+// hook used by the health endpoint.
+func TestStateMethodReturnsCurrent(t *testing.T) {
+	mf := &MockFetcher{responses: []domain.SnapshotEvent{snap(100)}}
+	repo := &MockRepository{}
+	h, _ := newHandler(t, mf, repo, 100)
+
+	require.Equal(t, symbol.Disconnected, h.State())
+	h.Start(context.Background())
+	require.Equal(t, symbol.Disconnected, h.State(), "Start alone does not transition")
+	reachSynced(t, h, 100)
+	require.Equal(t, symbol.Synced, h.State())
+}
+
+// TestSymbolStateString covers the typed-int → label mapping.
+func TestSymbolStateString(t *testing.T) {
+	require.Equal(t, "disconnected", symbol.Disconnected.String())
+	require.Equal(t, "bootstrapping", symbol.Bootstrapping.String())
+	require.Equal(t, "synced", symbol.Synced.String())
+	require.Equal(t, "resyncing", symbol.Resyncing.String())
+	require.Equal(t, "unknown", symbol.SymbolState(99).String())
+}
+
 // TestBootstrapBufferOverflowTriggersResnapshot:
 // If the buffer exceeds MaxBufferSize while waiting for the alignment
 // event, the handler must re-fetch the snapshot.
