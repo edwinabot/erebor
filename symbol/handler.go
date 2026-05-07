@@ -40,6 +40,7 @@ type Handler struct {
 	buffer          []domain.DiffEvent
 	snapshot        *domain.SnapshotEvent
 	snapshotPending bool
+	snapshotStale   bool // set when buffer overflows during a pending fetch
 
 	lastFinalUpdateID    int64
 	lastCheckpointTime   time.Time
@@ -114,7 +115,16 @@ func (h *Handler) HandleDiff(event domain.DiffEvent) {
 			)
 			h.buffer = h.buffer[:0]
 			h.snapshot = nil
-			h.kickoffSnapshotLocked()
+			if h.snapshotPending {
+				// kickoffSnapshotLocked would be a no-op while pending, and
+				// the in-flight snapshot is now too old to align — by the
+				// time it returns the events that would have aligned with
+				// it have been dropped. Mark it so the goroutine discards
+				// the result and re-fetches.
+				h.snapshotStale = true
+			} else {
+				h.kickoffSnapshotLocked()
+			}
 		}
 	case Synced:
 		h.handleSyncedLocked(event)
@@ -149,31 +159,47 @@ func (h *Handler) kickoffSnapshotLocked() {
 		ctx = context.Background()
 	}
 	h.bootstrapG.Add(1)
-	go func() {
-		defer h.bootstrapG.Done()
-		snap, err := h.fetcher.FetchSnapshot(ctx, h.cfg.Symbol, h.cfg.DepthLimit)
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		h.snapshotPending = false
-		if err != nil {
-			h.logger.Error("snapshot fetch failed", zap.Error(err))
-			// Stop retrying when shutting down; otherwise re-kick so a transient
-			// failure doesn't strand the handler in BOOTSTRAPPING.
-			if h.ctx != nil && h.ctx.Err() != nil {
-				return
-			}
-			if h.state == Bootstrapping {
-				h.kickoffSnapshotLocked()
-			}
-			return
-		}
-		h.logger.Info("snapshot received",
+	go h.runSnapshotFetch(ctx)
+}
+
+func (h *Handler) runSnapshotFetch(ctx context.Context) {
+	defer h.bootstrapG.Done()
+	snap, err := h.fetcher.FetchSnapshot(ctx, h.cfg.Symbol, h.cfg.DepthLimit)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.snapshotPending = false
+	if err != nil {
+		h.handleSnapshotErrorLocked(err)
+		return
+	}
+	if h.snapshotStale {
+		h.snapshotStale = false
+		h.logger.Info("discarding stale snapshot, re-fetching",
 			zap.Int64("snapshot_last_update_id", snap.LastUpdateID),
-			zap.Int("buffer_size", len(h.buffer)),
 		)
-		h.snapshot = &snap
-		h.tryAlignLocked()
-	}()
+		if h.state == Bootstrapping {
+			h.kickoffSnapshotLocked()
+		}
+		return
+	}
+	h.logger.Info("snapshot received",
+		zap.Int64("snapshot_last_update_id", snap.LastUpdateID),
+		zap.Int("buffer_size", len(h.buffer)),
+	)
+	h.snapshot = &snap
+	h.tryAlignLocked()
+}
+
+func (h *Handler) handleSnapshotErrorLocked(err error) {
+	h.logger.Error("snapshot fetch failed", zap.Error(err))
+	// Stop retrying when shutting down; otherwise re-kick so a transient
+	// failure doesn't strand the handler in BOOTSTRAPPING.
+	if h.ctx != nil && h.ctx.Err() != nil {
+		return
+	}
+	if h.state == Bootstrapping {
+		h.kickoffSnapshotLocked()
+	}
 }
 
 // tryAlignLocked is the bootstrap alignment routine. Spec:

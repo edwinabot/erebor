@@ -365,22 +365,18 @@ func TestHandleDiffWithoutStartUsesBackgroundContext(t *testing.T) {
 	waitFor(t, func() bool { return h.State() == symbol.Synced }, time.Second, "Synced via background ctx")
 }
 
-// TestBootstrapBufferOverflowBeforeSnapshotReturns drives the
-// "Bootstrapping AND snapshot==nil AND buffer > MaxBufferSize" branch in
-// HandleDiff. The handler clears the buffer and (defensively) calls
-// kickoffSnapshotLocked.
-//
-// Edge case observed (left as-is per instructions): when overflow occurs
-// while the first snapshot fetch is still in flight, the snapshotPending guard
-// makes the re-kick a no-op. The original snapshot, when it returns, finds
-// an empty buffer and silently waits. This test verifies the OBSERVED
-// behaviour: events buffered before overflow are dropped (never persisted)
-// and the handler can still complete bootstrap when a fresh aligning diff
-// arrives after the held snapshot resolves.
-func TestBootstrapBufferOverflowBeforeSnapshotReturns(t *testing.T) {
+// TestBootstrapBufferOverflowDuringPendingSnapshotReFetches pins the fix
+// for the overflow-during-pending-fetch race: when the buffer overflows
+// before the in-flight snapshot returns, the original snapshot is
+// guaranteed to be too old to align (the events that bracketed it have
+// been dropped). The handler must mark the in-flight snapshot stale,
+// discard its result on arrival, and trigger a fresh fetch — without
+// requiring an external nudge or relying on a second buffer overflow to
+// recover.
+func TestBootstrapBufferOverflowDuringPendingSnapshotReFetches(t *testing.T) {
 	hold := make(chan struct{})
 	mf := &MockFetcher{
-		responses: []domain.SnapshotEvent{snap(50)},
+		responses: []domain.SnapshotEvent{snap(50), snap(60)},
 		hold:      hold,
 	}
 	repo := &MockRepository{}
@@ -389,19 +385,29 @@ func TestBootstrapBufferOverflowBeforeSnapshotReturns(t *testing.T) {
 	h.Start(context.Background())
 
 	// Three buffered diffs with snapshot blocked → overflow on the third.
+	// snapshotPending is true, so the in-flight snap(50) is marked stale
+	// rather than re-kicked (which would be a no-op).
 	h.HandleDiff(diff(70, 71))
 	h.HandleDiff(diff(72, 73))
-	h.HandleDiff(diff(74, 75)) // overflow → buffer cleared
+	h.HandleDiff(diff(74, 75)) // overflow → snapshotStale = true
 
-	close(hold) // first snapshot returns; tryAlign on empty buffer is a no-op
+	close(hold) // snap(50) returns → goroutine sees stale flag → re-fetches
 
-	// Fresh aligning diff completes bootstrap.
-	h.HandleDiff(diff(51, 52))
-	waitFor(t, func() bool { return h.State() == symbol.Synced }, time.Second, "Synced via fresh alignment diff")
+	// Without any further nudge from HandleDiff, the second snapshot must
+	// be fetched.
+	waitFor(t, func() bool { return mf.callCount() >= 2 }, time.Second,
+		"second snapshot fetch after stale discard")
 
-	// Verify the pre-overflow buffered diffs were dropped (never persisted).
+	// snap(60) is now the active snapshot. An aligning diff completes
+	// bootstrap.
+	h.HandleDiff(diff(61, 62))
+	waitFor(t, func() bool { return h.State() == symbol.Synced }, time.Second,
+		"Synced via second snapshot alignment")
+
+	// Pre-overflow events were correctly dropped — only the alignment diff
+	// is persisted.
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
 	require.Len(t, repo.Diffs, 1)
-	require.Equal(t, int64(52), repo.Diffs[0].FinalUpdateID)
+	require.Equal(t, int64(62), repo.Diffs[0].FinalUpdateID)
 }
