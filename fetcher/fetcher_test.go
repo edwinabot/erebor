@@ -48,6 +48,78 @@ func TestFetchSnapshotHappyPath(t *testing.T) {
 	require.True(t, snap.Asks[1].Quantity.Equal(decimal.RequireFromString("1.2")))
 }
 
+// TestFetchSnapshotReturnsErrorOnNon200 covers the status-code guard.
+func TestFetchSnapshotReturnsErrorOnNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"code":-1003,"msg":"too many requests"}`))
+	}))
+	defer srv.Close()
+
+	df := fetcher.New(srv.URL)
+	_, err := df.FetchSnapshot(context.Background(), "BTCUSDT", 50)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "503")
+}
+
+// TestFetchSnapshotReturnsErrorOnInvalidJSON covers the json.Unmarshal
+// error path.
+func TestFetchSnapshotReturnsErrorOnInvalidJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`not valid json`))
+	}))
+	defer srv.Close()
+
+	df := fetcher.New(srv.URL)
+	_, err := df.FetchSnapshot(context.Background(), "BTCUSDT", 50)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decode depth")
+}
+
+// TestFetchSnapshotReturnsErrorOnInvalidPriceLevel covers the parseLevels
+// decimal-parse error path.
+func TestFetchSnapshotReturnsErrorOnInvalidPriceLevel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"lastUpdateId":1,"bids":[["abc","1"]],"asks":[]}`))
+	}))
+	defer srv.Close()
+
+	df := fetcher.New(srv.URL)
+	_, err := df.FetchSnapshot(context.Background(), "BTCUSDT", 50)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "bids")
+}
+
+// TestFetchSnapshotReturnsErrorOnMalformedLevel covers parseLevels' length
+// guard (level array with fewer than 2 elements).
+func TestFetchSnapshotReturnsErrorOnMalformedLevel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"lastUpdateId":1,"bids":[],"asks":[["100"]]}`))
+	}))
+	defer srv.Close()
+
+	df := fetcher.New(srv.URL)
+	_, err := df.FetchSnapshot(context.Background(), "BTCUSDT", 50)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "asks")
+}
+
+// TestFetchSnapshotPropagatesContextCancellation: cancelling the caller's
+// context aborts the in-flight request promptly.
+func TestFetchSnapshotPropagatesContextCancellation(t *testing.T) {
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-block
+	}))
+	defer func() { close(block); srv.Close() }()
+
+	df := fetcher.New(srv.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled
+	_, err := df.FetchSnapshot(ctx, "BTCUSDT", 50)
+	require.Error(t, err)
+}
+
 func TestFetchSnapshotDefaultsLimitWhenZero(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -46,11 +46,12 @@ func (m *MockRepository) QueryDiffs(_ context.Context, _ string, _ time.Time, _ 
 
 // MockFetcher returns a queue of snapshots, one per call.
 type MockFetcher struct {
-	mu        sync.Mutex
-	responses []domain.SnapshotEvent
-	calls     int
-	delay     time.Duration
-	hold      chan struct{} // if non-nil, waits on this before returning the first call
+	mu         sync.Mutex
+	responses  []domain.SnapshotEvent
+	calls      int
+	delay      time.Duration
+	hold       chan struct{} // if non-nil, waits on this before returning the first call
+	errOnCalls map[int]error // 1-indexed call ordinal → err to return (suppresses response consumption)
 }
 
 func (m *MockFetcher) FetchSnapshot(ctx context.Context, sym string, _ int) (domain.SnapshotEvent, error) {
@@ -68,10 +69,15 @@ func (m *MockFetcher) FetchSnapshot(ctx context.Context, sym string, _ int) (dom
 	} else {
 		m.calls++
 	}
+	callN := m.calls
 	if m.delay > 0 {
 		m.mu.Unlock()
 		time.Sleep(m.delay)
 		m.mu.Lock()
+	}
+	if err, ok := m.errOnCalls[callN]; ok {
+		m.mu.Unlock()
+		return domain.SnapshotEvent{}, err
 	}
 	if len(m.responses) == 0 {
 		m.mu.Unlock()

@@ -49,6 +49,29 @@ func TestLevelsJSONRoundTrip(t *testing.T) {
 	}
 }
 
+// TestJSONToLevelsRejectsInvalidPrice covers the price decimal-parse error
+// branch. Such corruption can only arise from manual SQL surgery — but the
+// guard exists.
+func TestJSONToLevelsRejectsInvalidPrice(t *testing.T) {
+	_, err := jsonToLevels([]byte(`[["abc", "1.0"]]`))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "parse price")
+}
+
+// TestJSONToLevelsRejectsInvalidQuantity covers the quantity-parse branch.
+func TestJSONToLevelsRejectsInvalidQuantity(t *testing.T) {
+	_, err := jsonToLevels([]byte(`[["100.0", "xyz"]]`))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "parse qty")
+}
+
+// TestJSONToLevelsRejectsMalformedJSON covers the json.Unmarshal error
+// branch.
+func TestJSONToLevelsRejectsMalformedJSON(t *testing.T) {
+	_, err := jsonToLevels([]byte(`{not valid json`))
+	require.Error(t, err)
+}
+
 func TestLevelsJSONHandlesEmptyInput(t *testing.T) {
 	out, err := jsonToLevels(nil)
 	require.NoError(t, err)

@@ -68,6 +68,23 @@ log:
 	require.Equal(t, 100, cfg.Symbols[0].CheckpointDiffThreshold)
 }
 
+// TestLoadConfigFailsWhenFileMissing covers the v.ReadInConfig error branch.
+func TestLoadConfigFailsWhenFileMissing(t *testing.T) {
+	_, err := loadConfig(filepath.Join(t.TempDir(), "nope.yaml"))
+	require.Error(t, err)
+}
+
+// TestLoadConfigFailsOnInvalidYAML covers the v.Unmarshal / parser error
+// branch by feeding YAML that can't deserialise into appConfig (a list
+// where a map is expected).
+func TestLoadConfigFailsOnInvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("not:\n  valid: [yaml: here"), 0o600))
+	_, err := loadConfig(path)
+	require.Error(t, err)
+}
+
 func TestBuildLoggerProducesValidLogger(t *testing.T) {
 	logger, err := buildLogger("info")
 	require.NoError(t, err)

@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(EREBOR_TEST_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" go test -race -cover ./...)",
-      "Bash(EREBOR_TEST_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" go test -race ./...)"
+      "Bash(EREBOR_TEST_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" go test -race ./...)",
+      "Bash(EREBOR_TEST_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" go test -race -coverprofile=/tmp/cov.out ./...)",
+      "Bash(go tool *)",
+      "Bash(awk '$NF != \"100.0%\" && $NF != \"0.0%\"')",
+      "Bash(sort -k3 -n)",
+      "Bash(EREBOR_TEST_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" go test -coverprofile=/tmp/cov.out ./...)",
+      "Bash(gofmt -w symbol/handler_test.go symbol/paths_test.go)"
     ]
   }
 }

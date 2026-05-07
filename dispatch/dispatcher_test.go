@@ -109,6 +109,80 @@ func TestDispatcherRoutesEventsByUpperCaseSymbol(t *testing.T) {
 	require.Equal(t, "ETHUSDT", ethDiffs[0].Symbol)
 }
 
+// TestDispatcherSkipsFrameWithMalformedLevels verifies that an event whose
+// bid/ask payload fails to parse is logged and skipped — the dispatcher
+// continues processing subsequent events.
+func TestDispatcherSkipsFrameWithMalformedLevels(t *testing.T) {
+	good := newRecordingHandler()
+	dp := dispatch.New(map[string]symbol.SymbolHandler{"BTCUSDT": good}, zap.NewNop())
+
+	bad := stream.RawDiffEvent{
+		Stream: "btcusdt@depth",
+		Data: stream.RawDiffPayload{
+			EventType:     "depthUpdate",
+			EventTimeMS:   1000,
+			Symbol:        "BTCUSDT",
+			FirstUpdateID: 1,
+			FinalUpdateID: 2,
+			Bids:          [][]string{{"100.0"}}, // malformed: only 1 element
+			Asks:          [][]string{},
+		},
+	}
+	ok := rawEvent("BTCUSDT", 3, 4, 2000)
+
+	events := make(chan stream.RawDiffEvent, 2)
+	events <- bad
+	events <- ok
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { dp.Run(ctx, events); close(done) }()
+
+	require.Eventually(t, func() bool { return len(good.snapshot()) == 1 },
+		time.Second, 5*time.Millisecond, "good event delivered")
+	cancel()
+	close(events)
+	<-done
+
+	diffs := good.snapshot()
+	require.Len(t, diffs, 1, "malformed event dropped, only the good one routed")
+	require.Equal(t, int64(4), diffs[0].FinalUpdateID)
+}
+
+// TestDispatcherSkipsFrameWithUnparseablePrice covers the parseLevels
+// decimal-parse error path.
+func TestDispatcherSkipsFrameWithUnparseablePrice(t *testing.T) {
+	good := newRecordingHandler()
+	dp := dispatch.New(map[string]symbol.SymbolHandler{"BTCUSDT": good}, zap.NewNop())
+
+	bad := stream.RawDiffEvent{
+		Stream: "btcusdt@depth",
+		Data: stream.RawDiffPayload{
+			EventType:     "depthUpdate",
+			Symbol:        "BTCUSDT",
+			FirstUpdateID: 1,
+			FinalUpdateID: 2,
+			Bids:          [][]string{{"not-a-number", "1.0"}},
+			Asks:          [][]string{},
+		},
+	}
+	events := make(chan stream.RawDiffEvent, 1)
+	events <- bad
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { dp.Run(ctx, events); close(done) }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	close(events)
+	<-done
+
+	require.Empty(t, good.snapshot(), "frame with bad price was dropped")
+}
+
 func TestDispatcherExitsWhenChannelClosed(t *testing.T) {
 	dp := dispatch.New(map[string]symbol.SymbolHandler{}, zap.NewNop())
 	events := make(chan stream.RawDiffEvent)
