@@ -11,14 +11,14 @@
 
 Erebor is a multi-service system being built incrementally. The services, in rough dependency order:
 
-| Module | Responsibility |
-|---|---|
-| **erebor-ingest** | Continuous Binance L2 order book ingestion into TimescaleDB |
-| **erebor-signals** | Consumes order book data, computes market signals and events |
-| **erebor-risk** | Risk management — enforces position and exposure limits before execution |
-| **erebor-execution** | Order placement on Binance, gated by risk |
-| **erebor-dashboard** | Web application — ingestion health, signal visibility, position monitoring |
-| **TimescaleDB** | Time-series store for order book diffs, checkpoints, signals, and events |
+| Module | Runtime | Responsibility |
+|---|---|---|
+| **erebor-ingest** | Go | Continuous Binance L2 order book ingestion into TimescaleDB |
+| **erebor-signals** | Go | Consumes order book data, computes market signals and events |
+| **erebor-risk** | Go | Risk management — enforces position and exposure limits before execution |
+| **erebor-execution** | Go | Order placement on Binance, gated by risk |
+| **erebor-dashboard** | Next.js · React · TypeScript | Web application — ingestion health, signal visibility, position monitoring |
+| **TimescaleDB** | — | Time-series store for order book diffs, checkpoints, signals, and events |
 
 Two goals shape these decisions: getting the system working, and learning Kubernetes. The deployment strategy is structured to serve both without the second blocking the first.
 
@@ -74,11 +74,11 @@ k3s is deferred, not abandoned. When the system reaches a stable baseline, the m
 
 **Next.js in Docker (self-hosted).** `output: 'standalone'` in `next.config.js` produces a self-contained Node.js server with a minimal footprint. Runs as a service in the Compose stack alongside ingest and TimescaleDB. No Vercel dependency. Standard for teams or projects that cannot adopt Vercel.
 
-**Angular.** Not considered.
+**Angular.** Not considered — the dashboard is React and TypeScript.
 
 ### Decision
 
-**Next.js with Docker as the canonical deployment target. Vercel is a supported convenience for local development and personal use.**
+**Next.js (React, TypeScript) with Docker as the canonical deployment target. Vercel is a supported convenience for local development and personal use.**
 
 ### Rationale
 
@@ -101,11 +101,11 @@ flowchart TD
 
     subgraph LocalMachine["Local Machine · Tailscale"]
         subgraph Compose["docker-compose.yml"]
-            INGEST["erebor-ingest\n―――――――――\nWebSocket ingestion\nBootstrap protocol"]
-            SIGNALS["erebor-signals\n―――――――――\nSignal computation\n[not yet implemented]"]
-            RISK["erebor-risk\n―――――――――\nRisk management\n[not yet implemented]"]
-            EXEC["erebor-execution\n―――――――――\nOrder placement\n[not yet implemented]"]
-            DASH["erebor-dashboard\n―――――――――\nNext.js standalone\n[not yet implemented]"]
+            INGEST["erebor-ingest\n―――――――――\nWebSocket ingestion\nBootstrap protocol · Go"]
+            SIGNALS["erebor-signals\n―――――――――\nSignal computation · Go\n[not yet implemented]"]
+            RISK["erebor-risk\n―――――――――\nRisk management · Go\n[not yet implemented]"]
+            EXEC["erebor-execution\n―――――――――\nOrder placement · Go\n[not yet implemented]"]
+            DASH["erebor-dashboard\n―――――――――\nNext.js · React · TypeScript\n[not yet implemented]"]
             DB[("TimescaleDB\n―――――――――\norder_book_diffs\norder_book_snapshots\nsignal_events")]
         end
     end
@@ -153,7 +153,7 @@ flowchart TD
 | EKS | Control plane costs $73/month; only warranted after k3s experience and budget allows |
 | RDS for TimescaleDB | Not justified until cloud migration; local persistence via named Docker volume with periodic S3 backups |
 | Dashboard authentication | Dashboard is private by default (Tailscale network or basic auth); formal auth deferred |
-| Language/runtime for signals, risk, execution | Not decided; each module ADR will cover this |
+| Language/runtime for signals, risk, execution | Decided — Go across all backend modules |
 
 ---
 
