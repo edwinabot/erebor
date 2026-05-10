@@ -9,11 +9,16 @@
 
 ## Context
 
-Erebor consists of three runtime concerns that need a home:
+Erebor is a multi-service system being built incrementally. The services, in rough dependency order:
 
-1. **erebor-ingest** — a long-lived Go process maintaining a persistent WebSocket connection to Binance and writing continuously to TimescaleDB.
-2. **TimescaleDB** — a PostgreSQL-backed time-series store holding order book diffs and checkpoints.
-3. **erebor-dashboard** — a web application providing visibility into ingestion health and market data, backed by an API that queries TimescaleDB.
+| Module | Responsibility |
+|---|---|
+| **erebor-ingest** | Continuous Binance L2 order book ingestion into TimescaleDB |
+| **erebor-signals** | Consumes order book data, computes market signals and events |
+| **erebor-risk** | Risk management — enforces position and exposure limits before execution |
+| **erebor-execution** | Order placement on Binance, gated by risk |
+| **erebor-dashboard** | Web application — ingestion health, signal visibility, position monitoring |
+| **TimescaleDB** | Time-series store for order book diffs, checkpoints, signals, and events |
 
 Two goals shape these decisions: getting the system working, and learning Kubernetes. The deployment strategy is structured to serve both without the second blocking the first.
 
@@ -23,9 +28,9 @@ Two goals shape these decisions: getting the system working, and learning Kubern
 
 ### Options Considered
 
-**Cloud (AWS EC2).** Pay-per-use compute with managed networking. Operational overhead is low. Monthly cost constrains iteration — every restart, schema wipe, or experiment has a background cost. Kubernetes on AWS (EKS) costs $73/month for the control plane alone before any nodes run.
+**Cloud (AWS EC2).** Pay-per-use compute with managed networking. Monthly cost constrains iteration — every restart, schema wipe, or experiment has a background cost. Kubernetes on AWS (EKS) costs $73/month for the control plane alone before any nodes run.
 
-**Local machine (mini PC, ~$200–250 one-time).** No recurring compute cost. Full control. k3s (lightweight Kubernetes) runs comfortably on a 16 GB machine alongside TimescaleDB and the ingest service. Remote access via Tailscale (free tier). Remaining year-one budget preserved for cloud experiments or a future migration.
+**Local machine (mini PC, ~$200–250 one-time).** No recurring compute cost. Full control. k3s runs comfortably on 16 GB alongside all Erebor services. Remote access via Tailscale (free tier). Year-one budget preserved for cloud experiments or a future migration.
 
 ### Decision
 
@@ -33,11 +38,11 @@ Two goals shape these decisions: getting the system working, and learning Kubern
 
 ### Rationale
 
-Cloud compute imposes a background cost on every iteration during prototyping. A local machine eliminates that pressure entirely and provides more RAM for less money. The one-time hardware cost leaves meaningful budget headroom for cloud experimentation once the system is stable.
+Cloud compute imposes a background cost on every iteration during prototyping. A local machine eliminates that pressure and provides more RAM for less money. The one-time hardware cost leaves meaningful budget headroom for cloud experimentation once the system is stable.
 
-The local setup is not a dead end. When Kubernetes is introduced (see Decision 3), the manifests developed locally transfer directly to EKS or a cloud-hosted k3s node. Existing CDK and IAM experience make that migration straightforward.
+The local setup is not a dead end. When Kubernetes is introduced (see Decision 3), the manifests developed locally transfer directly to EKS or a cloud-hosted k3s node. Existing CDK and IAM experience make that migration straightforward when the time comes.
 
-Remote access via Tailscale requires no port forwarding, no VPN server, and no cloud infrastructure. The machine is reachable from anywhere on the Tailscale network.
+Remote access via Tailscale requires no port forwarding, no VPN server, and no cloud infrastructure.
 
 ---
 
@@ -45,7 +50,7 @@ Remote access via Tailscale requires no port forwarding, no VPN server, and no c
 
 ### Options Considered
 
-**Docker Compose.** Declarative multi-container configuration. Single command to bring the full stack up. Mirrors the existing local development environment exactly. No learning curve overhead during active feature development.
+**Docker Compose.** Declarative multi-container configuration. Single command to bring the full stack up. Scales naturally to additional services — each new module is an entry in `docker-compose.yml`. No learning curve overhead during active feature development.
 
 **k3s (single-node Kubernetes).** Real Kubernetes API and tooling. StatefulSets, PersistentVolumeClaims, Ingress, Helm. Meaningful operational and learning investment before the first service runs.
 
@@ -55,72 +60,86 @@ Remote access via Tailscale requires no port forwarding, no VPN server, and no c
 
 ### Rationale
 
-Docker Compose keeps iteration fast while the core system — ingestion correctness, TimescaleDB schema, dashboard API — is being built out. The orchestration layer is not the learning objective at this stage; the system is.
+Docker Compose keeps iteration fast while the core system is being built. The `docker-compose.yml` expands naturally as new modules are introduced — adding `erebor-signals`, `erebor-risk`, and `erebor-execution` is additive, not structural change.
 
-k3s is deferred, not abandoned. When the system reaches a stable baseline (ingest reliable, dashboard functional, schema settled), the migration from Compose to k3s is a contained exercise with a working system as the reference point. Learning Kubernetes against a system whose behaviour is already understood is more productive than co-developing both simultaneously.
+k3s is deferred, not abandoned. When the system reaches a stable baseline, the migration from Compose to k3s is a contained exercise with a working system as the reference point. The `docker-compose.yml` serves as the specification for the equivalent Kubernetes manifests; it should be kept accurate as services are added.
 
 ---
 
-## Decision 3: Dashboard and API — Next.js on Vercel
+## Decision 3: Dashboard and API — Next.js, Vercel-optional
 
 ### Options Considered
 
-**Next.js on Vercel (free tier).** Full-stack React framework with file-based API routes. Vercel's free tier covers personal-scale traffic. No server management. API routes connect to TimescaleDB via a secured connection string over Tailscale or a public Elastic IP when deployed to cloud.
+**Next.js on Vercel (free tier).** Zero infrastructure management. Built-in preview deployments. Free tier covers personal-scale traffic. No lock-in — the same codebase runs self-hosted.
 
-**Next.js self-hosted on the local machine.** Same framework. Adds nginx, process management, and SSL to the operational scope of the ingest host. No material benefit at this stage.
-
-**Separate REST API + SPA frontend.** Two deployments, two runtimes, a CORS policy. Justified when the API needs to serve multiple independent clients; not justified here.
+**Next.js in Docker (self-hosted).** `output: 'standalone'` in `next.config.js` produces a self-contained Node.js server with a minimal footprint. Runs as a service in the Compose stack alongside ingest and TimescaleDB. No Vercel dependency. Standard for teams or projects that cannot adopt Vercel.
 
 **Angular.** Not considered.
 
 ### Decision
 
-**Next.js on Vercel (free tier).**
+**Next.js with Docker as the canonical deployment target. Vercel is a supported convenience for local development and personal use.**
 
 ### Rationale
 
-Vercel eliminates all frontend infrastructure management. The dashboard has no availability coupling to the ingest machine — a Compose restart or a machine reboot does not take down the frontend. API routes provide a sufficient backend layer for the dashboard's query needs against TimescaleDB.
+Next.js has no hard dependency on Vercel. The standalone build output runs in a Docker container identically to any other Node.js service. This matters because most production projects cannot adopt Vercel as a dependency — the self-hosted path must be first-class.
 
-**Database access from Vercel:** API routes connect to TimescaleDB using the machine's Tailscale IP (during local operation) or a stable public address (when migrated to cloud). The DSN is stored as a Vercel environment variable and never committed to source.
+The `docker-compose.yml` includes `erebor-dashboard` as a service. Vercel deployment remains available for personal use where convenience outweighs the desire to keep everything local — but it is not the canonical path.
+
+**Database access:** API routes connect to TimescaleDB via the service name within the Compose network (`timescaledb:5432`). When deployed to cloud, the DSN is injected via environment variable.
 
 ---
 
 ## Service Topology
 
-```
-Local Machine (mini PC, 16 GB RAM)
-┌─────────────────────────────────────────────────────┐
-│  docker-compose.yml                                 │
-│                                                     │
-│  ┌──────────────────────┐  ┌─────────────────────┐  │
-│  │  erebor-ingest (Go)  │  │  TimescaleDB        │  │
-│  │                      │─▶│  PostgreSQL +       │  │
-│  │                      │  │  Timescale ext.     │  │
-│  └──────────────────────┘  └──────────┬──────────┘  │
-│                                        │ named volume│
-│  Tailscale — reachable as              │             │
-│  machine.tailnet.ts.net                │             │
-└────────────────────────────────────────┘
-                    ▲
-    sslmode=require │ (Tailscale IP or future public IP)
-                    │
-Vercel (free tier)
-┌───────────────────┴─────────────────────────────────┐
-│  erebor-dashboard (Next.js)                         │
-│  ├── /app  — React frontend                         │
-│  └── /api  — API routes querying TimescaleDB        │
-└─────────────────────────────────────────────────────┘
+Docker Compose is the current runtime. The topology below reflects all planned modules — unimplemented services are listed to make their place in the stack explicit.
+
+```mermaid
+flowchart TD
+    WS["Binance WebSocket\nCombined Stream"]
+    REST["Binance REST API\nOrder placement"]
+
+    subgraph LocalMachine["Local Machine · Tailscale"]
+        subgraph Compose["docker-compose.yml"]
+            INGEST["erebor-ingest\n―――――――――\nWebSocket ingestion\nBootstrap protocol"]
+            SIGNALS["erebor-signals\n―――――――――\nSignal computation\n[not yet implemented]"]
+            RISK["erebor-risk\n―――――――――\nRisk management\n[not yet implemented]"]
+            EXEC["erebor-execution\n―――――――――\nOrder placement\n[not yet implemented]"]
+            DASH["erebor-dashboard\n―――――――――\nNext.js standalone\n[not yet implemented]"]
+            DB[("TimescaleDB\n―――――――――\norder_book_diffs\norder_book_snapshots\nsignal_events")]
+        end
+    end
+
+    WS -->|"WebSocket frames"| INGEST
+    INGEST -->|"diffs · checkpoints"| DB
+    DB -->|"order book data"| SIGNALS
+    SIGNALS -->|"signal events"| DB
+    DB -->|"signals · state"| RISK
+    RISK -->|"approved orders"| EXEC
+    EXEC -->|"POST /api/v3/order"| REST
+    DB -->|"metrics · events"| DASH
+
+    classDef external fill:#1e1e2e,stroke:#6c7086,color:#cdd6f4
+    classDef component fill:#1e3a5f,stroke:#89b4fa,color:#cdd6f4
+    classDef pending fill:#2a2a3e,stroke:#6c7086,color:#7f849c,stroke-dasharray:4 4
+    classDef store fill:#1e3a2f,stroke:#a6e3a1,color:#cdd6f4
+    classDef boundary fill:#12121e,stroke:#45475a,color:#585b70
+
+    class WS,REST external
+    class INGEST component
+    class SIGNALS,RISK,EXEC,DASH pending
+    class DB store
+    class LocalMachine,Compose boundary
 ```
 
 ---
 
 ## Security Posture
 
-- TimescaleDB DSN (including password) is sourced from environment variables in all runtimes. Never in source code, logs, or committed configuration files.
-- Vercel stores the DSN as an encrypted environment variable scoped to production deployments.
-- SSH access to the local machine is key-based only.
-- When the system is migrated to a cloud host, PostgreSQL inbound access is restricted by security group to known source IPs only. No unrestricted port 5432.
-- EBS encryption at rest is enabled if/when an AWS volume is provisioned.
+- All credentials (TimescaleDB DSN, Binance API key/secret) are sourced from environment variables. Never in source code, logs, or committed configuration files.
+- The Binance API key used by `erebor-execution` must be scoped to order placement only — no withdrawal permissions.
+- `erebor-execution` is the only service that holds Binance trading credentials. Signal and risk services do not have exchange API access.
+- When migrated to a cloud host, PostgreSQL inbound access is restricted by security group to known source IPs only. No unrestricted port 5432.
 
 ---
 
@@ -128,18 +147,19 @@ Vercel (free tier)
 
 | Concern | Deferral Rationale |
 |---|---|
-| k3s migration | Deferred until ingest, DB, and dashboard are stable end-to-end; manifests will be developed against a known-working system |
-| Cloud migration (AWS) | Deferred until local setup is stable; existing CDK/IAM experience makes this a contained exercise when ready |
-| EKS | EKS control plane costs $73/month; only warranted after k3s experience and budget allows |
-| RDS for TimescaleDB | Managed backups are valuable but not justified until cloud migration; local backups via volume snapshots in the interim |
-| Authentication on the dashboard | Dashboard is private by default (Tailscale or Vercel password protection); formal auth deferred |
-| CI/CD for infrastructure | Single machine, single operator; not warranted yet |
+| Inter-service messaging (NATS, Redis Streams) | Services currently communicate via TimescaleDB as shared store; a message broker becomes relevant when signals need to trigger execution with sub-second latency |
+| k3s migration | Deferred until all services are stable end-to-end; manifests will be derived from the Compose file |
+| Cloud migration (AWS) | Deferred until local setup is stable; existing CDK/IAM experience makes this a contained exercise |
+| EKS | Control plane costs $73/month; only warranted after k3s experience and budget allows |
+| RDS for TimescaleDB | Not justified until cloud migration; local persistence via named Docker volume with periodic S3 backups |
+| Dashboard authentication | Dashboard is private by default (Tailscale network or basic auth); formal auth deferred |
+| Language/runtime for signals, risk, execution | Not decided; each module ADR will cover this |
 
 ---
 
 ## Consequences
 
-- The ingest machine is the single point of failure for both ingestion and TimescaleDB. This is accepted at this stage. The bootstrap protocol in ADR-001 handles recovery automatically on restart.
-- The API layer is Next.js API routes within the dashboard application. If the API needs to evolve into an independently versioned service, it will be extracted at that point.
-- All future service additions must account for this topology: any service reading from TimescaleDB connects via the Tailscale IP and consumes the DSN from environment variables.
-- When k3s is introduced, the docker-compose.yml serves as the specification for the equivalent Kubernetes manifests. It should be kept accurate.
+- The `docker-compose.yml` is the authoritative definition of the full service topology. It must be kept current as modules are added. It is also the source specification for future k3s manifests.
+- New modules that read from TimescaleDB connect via the Compose service name (`timescaledb:5432`) and consume the DSN from environment variables.
+- The execution path (signals → risk → execution) is not yet designed. An inter-service messaging ADR will be needed before those modules are implemented.
+- The ingest machine is the single point of failure for all services. This is accepted at this stage. The bootstrap protocol in ADR-001 handles ingest recovery automatically on restart.
