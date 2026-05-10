@@ -1,4 +1,4 @@
-# ADR-002: Cloud Infrastructure and Service Topology
+# ADR-002: Infrastructure and Deployment Platform
 
 **Status:** Draft
 **Date:** 2026-05
@@ -15,66 +15,49 @@ Erebor consists of three runtime concerns that need a home:
 2. **TimescaleDB** — a PostgreSQL-backed time-series store holding order book diffs and checkpoints.
 3. **erebor-dashboard** — a web application providing visibility into ingestion health and market data, backed by an API that queries TimescaleDB.
 
-The project is at an early stage. Correctness and operational simplicity outweigh scalability at this point. Infrastructure decisions should prefer managed services and low operational overhead, while remaining evolvable as the project matures.
+Two goals shape these decisions: getting the system working, and learning Kubernetes. The deployment strategy is structured to serve both without the second blocking the first.
 
 ---
 
-## Decision 1: Cloud Provider — AWS
+## Decision 1: Deployment Target — Local Machine
 
 ### Options Considered
 
-**AWS.** Dominant market position, richest service catalog, strong free tier and low-cost instance types. Broad ecosystem of tooling and documentation.
+**Cloud (AWS EC2).** Pay-per-use compute with managed networking. Operational overhead is low. Monthly cost constrains iteration — every restart, schema wipe, or experiment has a background cost. Kubernetes on AWS (EKS) costs $73/month for the control plane alone before any nodes run.
 
-**GCP.** Strong on managed data services and container workloads. Broadly comparable cost. Less personal familiarity with the platform.
-
-**Azure.** Enterprise-oriented. Cost profile less favorable for small workloads.
-
-**Self-hosted / VPS (Hetzner, DigitalOcean).** Lower raw cost per compute unit. No managed services. Operational burden falls entirely on the operator.
+**Local machine (mini PC, ~$200–250 one-time).** No recurring compute cost. Full control. k3s (lightweight Kubernetes) runs comfortably on a 16 GB machine alongside TimescaleDB and the ingest service. Remote access via Tailscale (free tier). Remaining year-one budget preserved for cloud experiments or a future migration.
 
 ### Decision
 
-**AWS.**
+**Local machine.**
 
 ### Rationale
 
-AWS provides the right combination of low-cost compute options, mature managed services, and operational tooling for a project at this scale. Lightsail, EC2 reserved instances, and serverless primitives (Lambda, API Gateway) cover every required runtime without over-provisioning. The ecosystem of monitoring, alerting, and security tooling reduces operational overhead relative to a self-hosted VPS.
+Cloud compute imposes a background cost on every iteration during prototyping. A local machine eliminates that pressure entirely and provides more RAM for less money. The one-time hardware cost leaves meaningful budget headroom for cloud experimentation once the system is stable.
 
-Self-hosted VPS options offer lower raw compute cost but shift operational complexity (OS patching, network hardening, backup orchestration) entirely to the operator. That trade-off is unfavorable at this stage.
+The local setup is not a dead end. When Kubernetes is introduced (see Decision 3), the manifests developed locally transfer directly to EKS or a cloud-hosted k3s node. Existing CDK and IAM experience make that migration straightforward.
+
+Remote access via Tailscale requires no port forwarding, no VPN server, and no cloud infrastructure. The machine is reachable from anywhere on the Tailscale network.
 
 ---
 
-## Decision 2: Compute Model for erebor-ingest and TimescaleDB — Co-located on a Single EC2 Instance
+## Decision 2: Container Orchestration — Docker Compose
 
 ### Options Considered
 
-**Option A — Separate EC2 instances for ingest service and database.**
-Clean separation of concerns. Independent scaling and restart. Higher cost: two instances, two EBS volumes.
+**Docker Compose.** Declarative multi-container configuration. Single command to bring the full stack up. Mirrors the existing local development environment exactly. No learning curve overhead during active feature development.
 
-**Option B — Co-located on a single EC2 instance.**
-`erebor-ingest` and TimescaleDB run on the same host. Single monthly compute cost. Network latency between service and database is negligible (loopback). Single point of failure — a host failure takes down both.
-
-**Option C — RDS for PostgreSQL (managed TimescaleDB via Timescale Cloud or self-managed extension).**
-Managed backups, automated failover, point-in-time recovery. Significantly higher monthly cost relative to a self-managed instance. TimescaleDB extension must be explicitly enabled; RDS supports it.
-
-**Option D — Containers on ECS Fargate.**
-No EC2 management. Pay per task CPU/memory second. Well-suited for bursty workloads. TimescaleDB as a sidecar is operationally awkward; a stateful database should not run as a Fargate task. Would still require RDS or a dedicated host for the database.
+**k3s (single-node Kubernetes).** Real Kubernetes API and tooling. StatefulSets, PersistentVolumeClaims, Ingress, Helm. Meaningful operational and learning investment before the first service runs.
 
 ### Decision
 
-**Option B — Co-located on a single EC2 instance (t3.small, reserved or on-demand).**
-TimescaleDB runs as a managed Docker container (docker-compose, mirroring the local development setup). `erebor-ingest` runs as a systemd service or Docker container on the same host.
+**Docker Compose.** k3s is the explicit next deployment target once the system is working end-to-end (see Deferred Decisions).
 
 ### Rationale
 
-At current data volumes — up to 10 symbols at 100ms cadence — a single t3.small is not the bottleneck. The ingest service is I/O-bound (WebSocket read + DB write), not CPU-bound. TimescaleDB's working set for recent diffs fits comfortably in the 2 GB RAM of a t3.small.
+Docker Compose keeps iteration fast while the core system — ingestion correctness, TimescaleDB schema, dashboard API — is being built out. The orchestration layer is not the learning objective at this stage; the system is.
 
-Co-location eliminates inter-service network hops for the hot write path (WriteDiff, WriteCheckpoint), which matters for sequence continuity. It also reduces the monthly cost to a single line item.
-
-The SPOF is acceptable at this stage. A host failure terminates ingestion temporarily; the bootstrap protocol in ADR-001 handles reconnection and re-synchronisation from the point of failure automatically. Historical data persisted before the failure is not lost (EBS survives instance termination).
-
-RDS is deferred to a later maturity stage when the operational benefits (automated failover, managed backups) justify the cost delta.
-
-**EBS configuration:** A single gp3 volume attached to the instance. Snapshots scheduled via AWS Data Lifecycle Manager provide point-in-time backup at negligible additional cost.
+k3s is deferred, not abandoned. When the system reaches a stable baseline (ingest reliable, dashboard functional, schema settled), the migration from Compose to k3s is a contained exercise with a working system as the reference point. Learning Kubernetes against a system whose behaviour is already understood is more productive than co-developing both simultaneously.
 
 ---
 
@@ -82,95 +65,62 @@ RDS is deferred to a later maturity stage when the operational benefits (automat
 
 ### Options Considered
 
-**Option A — Next.js on Vercel.**
-Full-stack React framework with file-based API routes. Vercel's free tier covers personal-scale traffic (100 GB bandwidth, serverless function execution). No server management. Built-in preview deployments on branch push. API routes connect directly to TimescaleDB via a secured connection string.
+**Next.js on Vercel (free tier).** Full-stack React framework with file-based API routes. Vercel's free tier covers personal-scale traffic. No server management. API routes connect to TimescaleDB via a secured connection string over Tailscale or a public Elastic IP when deployed to cloud.
 
-**Option B — Next.js self-hosted on the EC2 instance.**
-Same framework, same code. Eliminates Vercel dependency. Adds process management (PM2 or systemd) and SSL termination (nginx + certbot) to the operational scope of the ingest host. Introduces resource contention with TimescaleDB on the same host.
+**Next.js self-hosted on the local machine.** Same framework. Adds nginx, process management, and SSL to the operational scope of the ingest host. No material benefit at this stage.
 
-**Option C — Separate REST API (Go, FastAPI, etc.) + SPA frontend.**
-Explicit separation of API and frontend. More operational surface area: two deployments, two runtimes to manage, a CORS policy to maintain. Justified when the API needs to serve multiple clients independently; not justified here.
+**Separate REST API + SPA frontend.** Two deployments, two runtimes, a CORS policy. Justified when the API needs to serve multiple independent clients; not justified here.
 
-**Option D — Angular frontend.**
-Not considered.
+**Angular.** Not considered.
 
 ### Decision
 
-**Option A — Next.js on Vercel.**
+**Next.js on Vercel (free tier).**
 
 ### Rationale
 
-Next.js's API routes provide a sufficient backend layer for the dashboard: querying TimescaleDB for ingestion health metrics, recent order book snapshots, and symbol-level statistics. The API does not need to be independently deployable or versioned at this stage — co-locating it with the frontend in the same Next.js project is the correct scope.
+Vercel eliminates all frontend infrastructure management. The dashboard has no availability coupling to the ingest machine — a Compose restart or a machine reboot does not take down the frontend. API routes provide a sufficient backend layer for the dashboard's query needs against TimescaleDB.
 
-Vercel eliminates all frontend infrastructure management. SSL, CDN, and preview deployments are provided out of the box. The free tier is adequate for a personal dashboard with low concurrent traffic.
-
-Self-hosting Next.js on the ingest EC2 instance would be operationally simpler in one sense (one host) but couples frontend availability to the ingest host's operational state. A mis-configured nginx or a Node.js process leak should not put the ingest service at risk.
-
-**Database access from Vercel:** API routes connect to TimescaleDB using the EC2 instance's public IP (or an Elastic IP) over a TLS-secured PostgreSQL connection (`sslmode=require`). The EC2 security group restricts inbound PostgreSQL access to Vercel's published IP ranges. The DSN is stored as a Vercel environment variable and never committed to source.
-
----
-
-## Decision 4: Networking — VPC with Public Subnet, Security Group Ingress Control
-
-### Decision
-
-The EC2 instance runs in the default VPC, public subnet. No NAT gateway, no private subnet. Inbound access is restricted via security group rules:
-
-| Port | Protocol | Source | Purpose |
-|---|---|---|---|
-| 22 | TCP | Operator IP only | SSH |
-| 5432 | TCP | Vercel IP ranges | TimescaleDB (API routes) |
-| 443 | TCP | 0.0.0.0/0 | HTTPS (if any future public endpoint) |
-
-Outbound is unrestricted (required for Binance WebSocket and REST calls).
-
-### Rationale
-
-A private subnet with a NAT gateway adds ~$32/month for the NAT gateway alone. At this scale, a well-configured security group on a public subnet provides equivalent security for the actual attack surface (which is: PostgreSQL port, SSH port). All sensitive ports are locked to specific source IPs or CIDR ranges.
-
-An Elastic IP is assigned to the instance to provide a stable address for the security group rule and DNS. Cost is negligible when the instance is running.
+**Database access from Vercel:** API routes connect to TimescaleDB using the machine's Tailscale IP (during local operation) or a stable public address (when migrated to cloud). The DSN is stored as a Vercel environment variable and never committed to source.
 
 ---
 
 ## Service Topology
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  AWS EC2 (t3.small)  ·  Elastic IP                             │
-│                                                                  │
-│  ┌─────────────────────────┐   ┌──────────────────────────┐    │
-│  │  erebor-ingest (Go)     │   │  TimescaleDB             │    │
-│  │  systemd / Docker       │──▶│  PostgreSQL + Timescale  │    │
-│  │                         │   │  Docker (port 5432)      │    │
-│  └─────────────────────────┘   └────────────┬─────────────┘    │
-│                                              │ EBS gp3 volume   │
-│  Security Group:                             │                   │
-│  5432 ← Vercel IPs only                      │                   │
-│  22   ← Operator IP only                     │                   │
-└─────────────────────────────────────────────────────────────────┘
-                                              ▲
-                              sslmode=require │
-                                              │
-┌─────────────────────────────────────────────┴───────────────────┐
-│  Vercel (free tier)                                              │
-│                                                                  │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  erebor-dashboard (Next.js)                               │  │
-│  │  ├── /app  — React frontend (order book, health views)   │  │
-│  │  └── /api  — API routes querying TimescaleDB             │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+Local Machine (mini PC, 16 GB RAM)
+┌─────────────────────────────────────────────────────┐
+│  docker-compose.yml                                 │
+│                                                     │
+│  ┌──────────────────────┐  ┌─────────────────────┐  │
+│  │  erebor-ingest (Go)  │  │  TimescaleDB        │  │
+│  │                      │─▶│  PostgreSQL +       │  │
+│  │                      │  │  Timescale ext.     │  │
+│  └──────────────────────┘  └──────────┬──────────┘  │
+│                                        │ named volume│
+│  Tailscale — reachable as              │             │
+│  machine.tailnet.ts.net                │             │
+└────────────────────────────────────────┘
+                    ▲
+    sslmode=require │ (Tailscale IP or future public IP)
+                    │
+Vercel (free tier)
+┌───────────────────┴─────────────────────────────────┐
+│  erebor-dashboard (Next.js)                         │
+│  ├── /app  — React frontend                         │
+│  └── /api  — API routes querying TimescaleDB        │
+└─────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Security Posture
 
-- TimescaleDB DSN (including password) is sourced from environment variables in all runtimes. It must never appear in source code, logs, or configuration files committed to the repository.
-- The EC2 instance must have no inbound rule permitting unrestricted PostgreSQL access. Vercel IP range allowlisting is the only permitted source for port 5432.
-- SSH access is key-based only. Password authentication is disabled.
-- Vercel stores the DSN as an encrypted environment variable. It is scoped to production deployments only; preview deployments use a separate read-only credential or no database access.
-- EBS volume encryption is enabled at rest.
+- TimescaleDB DSN (including password) is sourced from environment variables in all runtimes. Never in source code, logs, or committed configuration files.
+- Vercel stores the DSN as an encrypted environment variable scoped to production deployments.
+- SSH access to the local machine is key-based only.
+- When the system is migrated to a cloud host, PostgreSQL inbound access is restricted by security group to known source IPs only. No unrestricted port 5432.
+- EBS encryption at rest is enabled if/when an AWS volume is provisioned.
 
 ---
 
@@ -178,18 +128,18 @@ An Elastic IP is assigned to the instance to provide a stable address for the se
 
 | Concern | Deferral Rationale |
 |---|---|
-| Read replica for TimescaleDB | Not needed at current query volume; API routes run infrequently |
-| VPC private subnets | NAT gateway cost not justified at this scale |
-| RDS managed PostgreSQL | Adds significant monthly cost; manual backup via EBS snapshots is sufficient now |
-| Multi-region | Not warranted until ingestion uptime SLA becomes a hard requirement |
-| Authentication on the dashboard | Dashboard initially private (Vercel password protection or IP-restricted); formal auth deferred |
-| CI/CD pipeline for infrastructure | Manual EC2 provisioning acceptable for a single instance; IaC (Terraform, CDK) deferred |
+| k3s migration | Deferred until ingest, DB, and dashboard are stable end-to-end; manifests will be developed against a known-working system |
+| Cloud migration (AWS) | Deferred until local setup is stable; existing CDK/IAM experience makes this a contained exercise when ready |
+| EKS | EKS control plane costs $73/month; only warranted after k3s experience and budget allows |
+| RDS for TimescaleDB | Managed backups are valuable but not justified until cloud migration; local backups via volume snapshots in the interim |
+| Authentication on the dashboard | Dashboard is private by default (Tailscale or Vercel password protection); formal auth deferred |
+| CI/CD for infrastructure | Single machine, single operator; not warranted yet |
 
 ---
 
 ## Consequences
 
-- The ingest EC2 instance is the single point of failure for both ingestion and TimescaleDB. A host failure interrupts ingestion; the bootstrap protocol in ADR-001 handles recovery automatically on restart. Historical data is protected by EBS persistence.
-- The API layer is Next.js API routes within the dashboard application. If the API needs to evolve into an independently versioned service (e.g., to serve additional clients), it will be extracted into a standalone deployment at that point.
-- Vercel's free tier imposes function execution limits. If the dashboard generates heavy query traffic (e.g., long-running analytical queries from API routes), costs will increase or queries will need to be moved closer to the data.
-- All future ADRs for erebor services should account for this topology: any new service that reads from TimescaleDB must be granted access via the security group and must consume the DSN from environment variables.
+- The ingest machine is the single point of failure for both ingestion and TimescaleDB. This is accepted at this stage. The bootstrap protocol in ADR-001 handles recovery automatically on restart.
+- The API layer is Next.js API routes within the dashboard application. If the API needs to evolve into an independently versioned service, it will be extracted at that point.
+- All future service additions must account for this topology: any service reading from TimescaleDB connects via the Tailscale IP and consumes the DSN from environment variables.
+- When k3s is introduced, the docker-compose.yml serves as the specification for the equivalent Kubernetes manifests. It should be kept accurate.
