@@ -1,0 +1,19 @@
+binance:
+  websocket_base_url: "wss://stream.binance.com:9443"
+  rest_base_url: "https://api.binance.com"
+
+log:
+  level: info
+
+health:
+  addr: ":8080"
+
+symbols:
+  - name: BTCUSDT
+    depth_limit: 50
+    checkpoint_interval: 1s
+    checkpoint_diff_threshold: 500
+  - name: ETHUSDT
+    depth_limit: 50
+    checkpoint_interval: 1s
+    checkpoint_diff_threshold: 500

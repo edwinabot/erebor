@@ -1,0 +1,10 @@
+.git
+bin/
+dashboard/
+infra/
+adrs/
+*.log
+coverage.out
+coverage.html
+.env
+config.yaml

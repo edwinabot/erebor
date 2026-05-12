@@ -4,3 +4,7 @@ config.yaml
 *.log
 coverage.out
 coverage.html
+dashboard/node_modules/
+dashboard/.next/
+dashboard/.env.local
+dashboard/.env*.local

@@ -12,7 +12,13 @@
       "Bash(BINANCE_API_KEY=smoke BINANCE_API_SECRET=smoke DATABASE_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" timeout --signal=TERM 12 ./bin/erebor-ingest --config config.example.yaml)",
       "Bash(EREBOR_TEST_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" go test -race -run TestBuildLogger -v ./cmd/erebor-ingest/...)",
       "Bash(rm -f /tmp/ingest-split.log)",
-      "Bash(BINANCE_API_KEY=x BINANCE_API_SECRET=x DATABASE_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" timeout --signal=TERM 12 ./bin/erebor-ingest --config /tmp/split-config.yaml)"
+      "Bash(BINANCE_API_KEY=x BINANCE_API_SECRET=x DATABASE_DSN=\"postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable\" timeout --signal=TERM 12 ./bin/erebor-ingest --config /tmp/split-config.yaml)",
+      "Bash(curl -s http://localhost:8080/healthz)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/api/health)",
+      "Bash(curl -s -u admin:erebor_dev http://localhost:3000/api/datasources)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s -u admin:replace_me http://localhost:3000/api/datasources)"
     ]
   }
 }

@@ -1,3 +1,14 @@
+networks:
+  erebor_net:
+    name: erebor_net
+    driver: bridge
+
+volumes:
+  erebor_timescale_data:
+    name: erebor_timescale_data
+  erebor_grafana_data:
+    name: erebor_grafana_data
+
 services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
@@ -5,18 +16,73 @@ services:
     environment:
       POSTGRES_DB: erebor
       POSTGRES_USER: erebor
-      POSTGRES_PASSWORD: erebor_dev
+      POSTGRES_PASSWORD: ${TIMESCALEDB_PASSWORD:-erebor_dev}
     ports:
       - "5432:5432"
     volumes:
       - erebor_timescale_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d/:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U erebor -d erebor"]
       interval: 2s
       timeout: 5s
       retries: 30
+    networks:
+      - erebor_net
     restart: unless-stopped
 
-volumes:
-  erebor_timescale_data:
-    name: erebor_timescale_data
+  ingest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erebor-ingest
+    environment:
+      BINANCE_API_KEY: ${BINANCE_API_KEY}
+      BINANCE_API_SECRET: ${BINANCE_API_SECRET}
+      DATABASE_DSN: postgres://erebor:${TIMESCALEDB_PASSWORD:-erebor_dev}@timescaledb:5432/erebor?sslmode=disable
+    volumes:
+      - ./config.docker.yaml:/app/config.yaml:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - erebor_net
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: erebor-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-erebor_dev}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      TIMESCALEDB_PASSWORD: ${TIMESCALEDB_PASSWORD:-erebor_dev}
+    volumes:
+      - erebor_grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - erebor_net
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: erebor-dashboard
+    environment:
+      DATABASE_DSN: postgres://erebor:${TIMESCALEDB_PASSWORD:-erebor_dev}@timescaledb:5432/erebor?sslmode=disable
+    ports:
+      - "3001:3000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - erebor_net
+    restart: unless-stopped
