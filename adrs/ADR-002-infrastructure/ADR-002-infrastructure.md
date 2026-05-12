@@ -17,7 +17,8 @@ Erebor is a multi-service system being built incrementally. The services, in rou
 | **erebor-signals** | Go | Consumes order book data, computes market signals and events |
 | **erebor-risk** | Go | Risk management — enforces position and exposure limits before execution |
 | **erebor-execution** | Go | Order placement on Binance, gated by risk |
-| **erebor-dashboard** | Next.js · React · TypeScript | Web application — ingestion health, signal visibility, position monitoring |
+| **erebor-dashboard** | Next.js · React · TypeScript | Trading UI — market depth, top-of-book, spread, signals |
+| **Grafana** | — | Ops observability — ingestion health, system metrics, alerting |
 | **TimescaleDB** | — | Time-series store for order book diffs, checkpoints, signals, and events |
 
 Two goals shape these decisions: getting the system working, and learning Kubernetes. The deployment strategy is structured to serve both without the second blocking the first.
@@ -66,71 +67,9 @@ k3s is deferred, not abandoned. When the system reaches a stable baseline, the m
 
 ---
 
-## Decision 3: Dashboard and API — Next.js, Vercel-optional
+## Decision 3: Dashboard
 
-### Options Considered
-
-**Next.js on Vercel (free tier).** Zero infrastructure management. Built-in preview deployments. Free tier covers personal-scale traffic. No lock-in — the same codebase runs self-hosted.
-
-**Next.js in Docker (self-hosted).** `output: 'standalone'` in `next.config.js` produces a self-contained Node.js server with a minimal footprint. Runs as a service in the Compose stack alongside ingest and TimescaleDB. No Vercel dependency. Standard for teams or projects that cannot adopt Vercel.
-
-**Angular.** Not considered — the dashboard is React and TypeScript.
-
-### Decision
-
-**Next.js (React, TypeScript) with Docker as the canonical deployment target. Vercel is a supported convenience for local development and personal use.**
-
-### Rationale
-
-Next.js has no hard dependency on Vercel. The standalone build output runs in a Docker container identically to any other Node.js service. This matters because most production projects cannot adopt Vercel as a dependency — the self-hosted path must be first-class.
-
-The `docker-compose.yml` includes `erebor-dashboard` as a service. Vercel deployment remains available for personal use where convenience outweighs the desire to keep everything local — but it is not the canonical path.
-
-**Database access:** API routes connect to TimescaleDB via the service name within the Compose network (`timescaledb:5432`). When deployed to cloud, the DSN is injected via environment variable.
-
----
-
-## Service Topology
-
-Docker Compose is the current runtime. The topology below reflects all planned modules — unimplemented services are listed to make their place in the stack explicit.
-
-```mermaid
-flowchart TD
-    WS["Binance WebSocket\nCombined Stream"]
-    REST["Binance REST API\nOrder placement"]
-
-    subgraph LocalMachine["Local Machine · Tailscale"]
-        subgraph Compose["docker-compose.yml"]
-            INGEST["erebor-ingest\n―――――――――\nWebSocket ingestion\nBootstrap protocol · Go"]
-            SIGNALS["erebor-signals\n―――――――――\nSignal computation · Go\n[not yet implemented]"]
-            RISK["erebor-risk\n―――――――――\nRisk management · Go\n[not yet implemented]"]
-            EXEC["erebor-execution\n―――――――――\nOrder placement · Go\n[not yet implemented]"]
-            DASH["erebor-dashboard\n―――――――――\nNext.js · React · TypeScript\n[not yet implemented]"]
-            DB[("TimescaleDB\n―――――――――\norder_book_diffs\norder_book_snapshots\nsignal_events")]
-        end
-    end
-
-    WS -->|"WebSocket frames"| INGEST
-    INGEST -->|"diffs · checkpoints"| DB
-    DB -->|"order book data"| SIGNALS
-    SIGNALS -->|"signal events"| DB
-    DB -->|"signals · state"| RISK
-    RISK -->|"approved orders"| EXEC
-    EXEC -->|"POST /api/v3/order"| REST
-    DB -->|"metrics · events"| DASH
-
-    classDef external fill:#1e1e2e,stroke:#6c7086,color:#cdd6f4
-    classDef component fill:#1e3a5f,stroke:#89b4fa,color:#cdd6f4
-    classDef pending fill:#2a2a3e,stroke:#6c7086,color:#7f849c,stroke-dasharray:4 4
-    classDef store fill:#1e3a2f,stroke:#a6e3a1,color:#cdd6f4
-    classDef boundary fill:#12121e,stroke:#45475a,color:#585b70
-
-    class WS,REST external
-    class INGEST component
-    class SIGNALS,RISK,EXEC,DASH pending
-    class DB store
-    class LocalMachine,Compose boundary
-```
+Covered in [ADR-003: Dashboard](../ADR-003-dashboard/ADR-003-dashboard.md).
 
 ---
 
@@ -152,7 +91,7 @@ flowchart TD
 | Cloud migration (AWS) | Deferred until local setup is stable; existing CDK/IAM experience makes this a contained exercise |
 | EKS | Control plane costs $73/month; only warranted after k3s experience and budget allows |
 | RDS for TimescaleDB | Not justified until cloud migration; local persistence via named Docker volume with periodic S3 backups |
-| Dashboard authentication | Dashboard is private by default (Tailscale network or basic auth); formal auth deferred |
+| Authentication (dashboard + Grafana) | Both are private by default (Tailscale network); Grafana ships with built-in auth; formal SSO deferred |
 | Language/runtime for signals, risk, execution | Decided — Go across all backend modules |
 
 ---
