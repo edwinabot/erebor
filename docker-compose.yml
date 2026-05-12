@@ -21,7 +21,7 @@ services:
       - "5432:5432"
     volumes:
       - erebor_timescale_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d/:ro
+      - ./engine/migrations:/docker-entrypoint-initdb.d/:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U erebor -d erebor"]
       interval: 2s
@@ -33,7 +33,7 @@ services:
 
   ingest:
     build:
-      context: .
+      context: ./engine
       dockerfile: Dockerfile
     container_name: erebor-ingest
     environment:
@@ -41,7 +41,7 @@ services:
       BINANCE_API_SECRET: ${BINANCE_API_SECRET}
       DATABASE_DSN: postgres://erebor:${TIMESCALEDB_PASSWORD:-erebor_dev}@timescaledb:5432/erebor?sslmode=disable
     volumes:
-      - ./config.docker.yaml:/app/config.yaml:ro
+      - ./engine/config.docker.yaml:/app/config.yaml:ro
     ports:
       - "8080:8080"
     depends_on:

@@ -2,33 +2,34 @@
 
 BIN        := bin/erebor-ingest
 MAIN       := ./cmd/erebor-ingest
-MIGRATION  := migrations/001_initial_schema.sql
+MIGRATION  := engine/migrations/001_initial_schema.sql
 COMPOSE    := docker compose
 DB_SERVICE := timescaledb
 LOCAL_DSN  := postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable
-CONFIG     ?= config.example.yaml
+CONFIG     ?= engine/config.example.yaml
+ENGINE_DIR := engine
 
 # ---------- Build / test / lint ----------
 
 build:
 	mkdir -p bin
-	go build -o $(BIN) $(MAIN)
+	cd $(ENGINE_DIR) && go build -o ../$(BIN) $(MAIN)
 
 test:
-	go test -race ./...
+	cd $(ENGINE_DIR) && go test -race ./...
 
 cover:
-	go test -race -covermode=atomic -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out | tail -n 1
+	cd $(ENGINE_DIR) && go test -race -covermode=atomic -coverprofile=coverage.out ./...
+	cd $(ENGINE_DIR) && go tool cover -func=coverage.out | tail -n 1
 
 cover-html: cover
-	go tool cover -html=coverage.out
+	cd $(ENGINE_DIR) && go tool cover -html=coverage.out
 
 fmt:
-	gofmt -w .
+	cd $(ENGINE_DIR) && gofmt -w .
 
 lint:
-	golangci-lint run
+	cd $(ENGINE_DIR) && golangci-lint run
 
 qlty:
 	qlty check --all
