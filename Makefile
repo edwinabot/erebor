@@ -1,34 +1,35 @@
-.PHONY: build test cover cover-html lint fmt migrate db-up db-down db-logs db-wait db-reset run dev clean
+.PHONY: build test cover cover-html lint fmt migrate db-up db-down db-logs db-wait db-reset run dev up down logs clean
 
 BIN        := bin/erebor-ingest
 MAIN       := ./cmd/erebor-ingest
-MIGRATION  := migrations/001_initial_schema.sql
+MIGRATION  := engine/migrations/001_initial_schema.sql
 COMPOSE    := docker compose
 DB_SERVICE := timescaledb
 LOCAL_DSN  := postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable
-CONFIG     ?= config.example.yaml
+CONFIG     ?= engine/config.example.yaml
+ENGINE_DIR := engine
 
 # ---------- Build / test / lint ----------
 
 build:
 	mkdir -p bin
-	go build -o $(BIN) $(MAIN)
+	cd $(ENGINE_DIR) && go build -o ../$(BIN) $(MAIN)
 
 test:
-	go test -race ./...
+	cd $(ENGINE_DIR) && go test -race ./...
 
 cover:
-	go test -race -covermode=atomic -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out | tail -n 1
+	cd $(ENGINE_DIR) && go test -race -covermode=atomic -coverprofile=coverage.out ./...
+	cd $(ENGINE_DIR) && go tool cover -func=coverage.out | tail -n 1
 
 cover-html: cover
-	go tool cover -html=coverage.out
+	cd $(ENGINE_DIR) && go tool cover -html=coverage.out
 
 fmt:
-	gofmt -w .
+	cd $(ENGINE_DIR) && gofmt -w .
 
 lint:
-	golangci-lint run
+	cd $(ENGINE_DIR) && golangci-lint run
 
 qlty:
 	qlty check --all
@@ -101,6 +102,31 @@ run: build db-up migrate
 # `make dev` is a shorthand for build + db-up + migrate without launching
 # the CLI, useful when iterating with `go run`.
 dev: db-up migrate
+
+# ---------- Full stack (Docker Compose) ----------
+
+up:
+	$(COMPOSE) up --build -d
+	@$(MAKE) --no-print-directory stack-wait
+	@echo "stack ready — ingest :8080  grafana :3000  dashboard :3001"
+
+down:
+	$(COMPOSE) down
+
+logs:
+	$(COMPOSE) logs -f
+
+stack-wait:
+	@echo "waiting for ingest health probe..."
+	@for i in $$(seq 1 60); do \
+	    if curl -sf http://localhost:8080/healthz >/dev/null 2>&1; then \
+	        echo "ingest healthy"; exit 0; \
+	    fi; \
+	    sleep 2; \
+	done; \
+	echo "ingest did not become healthy in time"; exit 1
+
+# ---------- Clean ----------
 
 clean:
 	rm -rf bin

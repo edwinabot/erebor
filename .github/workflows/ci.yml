@@ -13,13 +13,17 @@ jobs:
   format:
     name: gofmt
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: engine/go.mod
           cache: true
+          cache-dependency-path: engine/go.sum
 
       - name: Check gofmt
         run: |
@@ -49,23 +53,29 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: engine/go.mod
           cache: true
+          cache-dependency-path: engine/go.sum
 
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.1
+          working-directory: engine
 
   test:
     name: test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: engine/go.mod
           cache: true
+          cache-dependency-path: engine/go.sum
 
       - name: Run tests with coverage
         run: |
@@ -78,13 +88,13 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: coverage
-          path: coverage.out
+          path: engine/coverage.out
           if-no-files-found: error
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: coverage.out
+          files: engine/coverage.out
           flags: unittests
           fail_ci_if_error: false
         env:
@@ -94,5 +104,5 @@ jobs:
         uses: qltysh/qlty-action/coverage@v2
         with:
           token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
-          files: coverage.out
+          files: engine/coverage.out
           strip-prefix: github.com/edwinabot/erebor/ingest/
