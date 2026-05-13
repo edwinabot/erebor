@@ -123,7 +123,7 @@ logs:
 stack-wait:
 	@echo "waiting for ingest health probe..."
 	@for i in $$(seq 1 60); do \
-	    if curl -sf http://localhost:8080/healthz >/dev/null 2>&1; then \
+	    if curl -s http://localhost:8080/healthz >/dev/null 2>&1; then \
 	        echo "ingest healthy"; exit 0; \
 	    fi; \
 	    sleep 2; \
