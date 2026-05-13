@@ -18,7 +18,7 @@ services:
       POSTGRES_USER: erebor
       POSTGRES_PASSWORD: ${TIMESCALEDB_PASSWORD:-erebor_dev}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - erebor_timescale_data:/var/lib/postgresql/data
       - ./engine/migrations:/docker-entrypoint-initdb.d/:ro
@@ -43,7 +43,7 @@ services:
     volumes:
       - ./engine/config.docker.yaml:/app/config.yaml:ro
     ports:
-      - "8080:8080"
+      - "0.0.0.0:8080:8080"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -63,7 +63,7 @@ services:
       - erebor_grafana_data:/var/lib/grafana
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
-      - "3000:3000"
+      - "0.0.0.0:3000:3000"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -79,7 +79,7 @@ services:
     environment:
       DATABASE_DSN: postgres://erebor:${TIMESCALEDB_PASSWORD:-erebor_dev}@timescaledb:5432/erebor?sslmode=disable
     ports:
-      - "3001:3000"
+      - "0.0.0.0:3001:3000"
     depends_on:
       timescaledb:
         condition: service_healthy

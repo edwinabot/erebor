@@ -8,6 +8,7 @@ DB_SERVICE := timescaledb
 LOCAL_DSN  := postgres://erebor:erebor_dev@localhost:5432/erebor?sslmode=disable
 CONFIG     ?= engine/config.example.yaml
 ENGINE_DIR := engine
+SERVER_IP  ?= 192.168.1.111
 
 # ---------- Build / test / lint ----------
 
@@ -108,7 +109,10 @@ dev: db-up migrate
 up:
 	$(COMPOSE) up --build -d
 	@$(MAKE) --no-print-directory stack-wait
-	@echo "stack ready — ingest :8080  grafana :3000  dashboard :3001"
+	@echo "stack ready"
+	@echo "  ingest    http://$(SERVER_IP):8080"
+	@echo "  grafana   http://$(SERVER_IP):3000"
+	@echo "  dashboard http://$(SERVER_IP):3001"
 
 down:
 	$(COMPOSE) down
