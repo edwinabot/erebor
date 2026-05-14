@@ -2,6 +2,7 @@
   "name": "erebor-dashboard",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.1.2",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -12,6 +13,9 @@
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["sharp"]
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
