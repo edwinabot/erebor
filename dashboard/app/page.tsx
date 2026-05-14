@@ -1,8 +1,14 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
 export default function Home() {
-  return (
-    <main>
-      <h1>Erebor Trading Dashboard</h1>
-      <p>Trading visualizations not yet implemented.</p>
-    </main>
-  )
+  const router = useRouter();
+
+  useEffect(() => {
+    router.push("/dashboard");
+  }, [router]);
+
+  return null;
 }

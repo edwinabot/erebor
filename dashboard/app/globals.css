@@ -1,0 +1,138 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Space+Grotesk:wght@600;700&display=swap");
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-primary: #0a0e27;
+  --bg-secondary: #0f1329;
+  --bg-tertiary: #151a35;
+  --border-color: #1e2749;
+  --text-primary: #ffffff;
+  --text-secondary: #a0a9be;
+  --text-tertiary: #6b7280;
+  --color-buy: #00d966;
+  --color-buy-dark: #00b850;
+  --color-sell: #ff1744;
+  --color-sell-dark: #d41233;
+  --color-neutral: #00bfff;
+  --color-accent: #ffd700;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.8);
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* Typography */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+h1 {
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+h3 {
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+h4 {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Utility classes */
+.text-buy {
+  color: var(--color-buy);
+}
+
+.text-sell {
+  color: var(--color-sell);
+}
+
+.text-neutral {
+  color: var(--color-neutral);
+}
+
+.bg-buy-subtle {
+  background-color: rgba(0, 217, 102, 0.05);
+}
+
+.bg-sell-subtle {
+  background-color: rgba(255, 23, 68, 0.05);
+}
+
+.input-base {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  transition: border-color 0.2s ease;
+}
+
+.input-base:focus {
+  outline: none;
+  border-color: var(--color-neutral);
+}
+
+button {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
