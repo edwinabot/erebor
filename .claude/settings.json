@@ -20,5 +20,9 @@
       "Bash(python3 -m json.tool)",
       "Bash(curl -s -u admin:replace_me http://localhost:3000/api/datasources)"
     ]
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true
   }
 }
