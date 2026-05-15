@@ -8,7 +8,12 @@ import SpreadChart from "./components/SpreadChart";
 import ImbalanceChart from "./components/ImbalanceChart";
 import styles from "./Dashboard.module.css";
 
-type ViewType = "ladder" | "depth" | "heatmap" | "spread" | "imbalance";
+type ViewType =
+  | "ladder"
+  | "depth"
+  | "heatmap"
+  | "spread"
+  | "imbalance";
 
 export default function DashboardPage() {
   const [activeView, setActiveView] = useState<ViewType>("ladder");
@@ -49,7 +54,9 @@ export default function DashboardPage() {
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            className={`${styles.tab} ${activeView === tab.id ? styles.active : ""}`}
+            className={`${styles.tab} ${
+              activeView === tab.id ? styles.active : ""
+            }`}
             onClick={() => setActiveView(tab.id)}
             aria-selected={activeView === tab.id}
           >

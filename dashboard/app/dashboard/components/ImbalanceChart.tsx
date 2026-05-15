@@ -38,8 +38,10 @@ export default function ImbalanceChart({ symbol }: ImbalanceChartProps) {
     const centerY = pad.top + gh / 2;
 
     // Maps index → x, imbalance [-1,+1] → y
-    const gx = (i: number) => pad.left + (i / Math.max(samples.length - 1, 1)) * gw;
-    const gy = (imbalance: number) => centerY - imbalance * (gh / 2);
+    const gx = (i: number) =>
+      pad.left + (i / Math.max(samples.length - 1, 1)) * gw;
+    const gy = (imbalance: number) =>
+      centerY - imbalance * (gh / 2);
 
     // Grid lines
     ctx.strokeStyle = COLORS.border;
@@ -70,7 +72,9 @@ export default function ImbalanceChart({ symbol }: ImbalanceChartProps) {
       const alpha = Math.abs(imbalance) * 0.4;
 
       ctx.fillStyle =
-        imbalance >= 0 ? `rgba(0, 217, 102, ${alpha})` : `rgba(255, 23, 68, ${alpha})`;
+        imbalance >= 0
+          ? `rgba(0, 217, 102, ${alpha})`
+          : `rgba(255, 23, 68, ${alpha})`;
       ctx.fillRect(x, Math.min(y, centerY), 2, Math.abs(centerY - y));
     });
 
@@ -119,7 +123,7 @@ export default function ImbalanceChart({ symbol }: ImbalanceChartProps) {
           second: "2-digit",
         }),
         gx(i),
-        pad.top + gh + 18
+        pad.top + gh + 18,
       );
     }
   }, [data]);
@@ -142,15 +146,21 @@ export default function ImbalanceChart({ symbol }: ImbalanceChartProps) {
         <div className={styles.stats}>
           <div className={styles.stat}>
             <span className={styles.label}>BID QTY</span>
-            <span className={styles.value + " " + styles.buy}>{latest.bid_qty}</span>
+            <span className={styles.value + " " + styles.buy}>
+              {latest.bid_qty}
+            </span>
           </div>
           <div className={styles.stat}>
             <span className={styles.label}>ASK QTY</span>
-            <span className={styles.value + " " + styles.sell}>{latest.ask_qty}</span>
+            <span className={styles.value + " " + styles.sell}>
+              {latest.ask_qty}
+            </span>
           </div>
           <div className={styles.stat}>
             <span className={styles.label}>IMBALANCE</span>
-            <span className={`${styles.value} ${imbalance >= 0 ? styles.buy : styles.sell}`}>
+            <span
+              className={`${styles.value} ${imbalance >= 0 ? styles.buy : styles.sell}`}
+            >
               {(imbalance * 100).toFixed(1)}%
             </span>
           </div>
@@ -158,7 +168,9 @@ export default function ImbalanceChart({ symbol }: ImbalanceChartProps) {
       </div>
       <canvas ref={canvasRef} className={styles.canvas} />
       <div className={styles.legend}>
-        <span className={styles.legendLabel}>Positive = Bid Heavy | Negative = Ask Heavy</span>
+        <span className={styles.legendLabel}>
+          Positive = Bid Heavy | Negative = Ask Heavy
+        </span>
       </div>
     </div>
   );

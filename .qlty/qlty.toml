@@ -34,7 +34,6 @@ exclude_patterns = [
   "**/gradlew/**",
   "**/mvnw/**",
   "**/node_modules/**",
-  "**/pnpm-lock.yaml",
   "**/protos/**",
   "**/seed/**",
   "**/target/**",
@@ -78,17 +77,6 @@ name = "osv-scanner"
 
 [[plugin]]
 name = "radarlint-go"
-mode = "monitor"
-
-[[plugin]]
-name = "eslint"
-package_file = "dashboard/package.json"
-
-[[plugin]]
-name = "prettier"
-
-[[plugin]]
-name = "radarlint-js"
 mode = "monitor"
 
 [[plugin]]

@@ -47,8 +47,10 @@ export default function SpreadChart({ symbol }: SpreadChartProps) {
     const paddedMax = maxPrice + priceRange * 0.05;
     const paddedRange = paddedMax - paddedMin;
 
-    const gx = (idx: number) => pad.left + (idx / Math.max(samples.length - 1, 1)) * gw;
-    const gy = (price: number) => pad.top + gh - ((price - paddedMin) / paddedRange) * gh;
+    const gx = (idx: number) =>
+      pad.left + (idx / Math.max(samples.length - 1, 1)) * gw;
+    const gy = (price: number) =>
+      pad.top + gh - ((price - paddedMin) / paddedRange) * gh;
 
     // Grid
     ctx.strokeStyle = COLORS.border;
@@ -135,7 +137,7 @@ export default function SpreadChart({ symbol }: SpreadChartProps) {
           second: "2-digit",
         }),
         gx(i),
-        pad.top + gh + 18
+        pad.top + gh + 18,
       );
     }
   }, [data]);

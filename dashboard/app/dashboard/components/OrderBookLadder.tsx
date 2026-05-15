@@ -13,7 +13,9 @@ interface OrderBookLadderProps {
   symbol: string;
 }
 
-function addCumulativeQty(levels: Array<{ price: string; quantity: string }>): LadderLevel[] {
+function addCumulativeQty(
+  levels: Array<{ price: string; quantity: string }>,
+): LadderLevel[] {
   let cum = 0;
   return levels.map((lvl) => {
     cum += parseFloat(lvl.quantity);
@@ -38,7 +40,7 @@ export default function OrderBookLadder({ symbol }: OrderBookLadderProps) {
   const maxQty = Math.max(
     ...displayAsks.map((l) => parseFloat(l.quantity)),
     ...displayBids.map((l) => parseFloat(l.quantity)),
-    1
+    1,
   );
 
   const spread =
@@ -48,7 +50,10 @@ export default function OrderBookLadder({ symbol }: OrderBookLadderProps) {
 
   const midPrice =
     data.asks.length > 0 && data.bids.length > 0
-      ? ((parseFloat(data.asks[0].price) + parseFloat(data.bids[0].price)) / 2).toFixed(2)
+      ? (
+          (parseFloat(data.asks[0].price) + parseFloat(data.bids[0].price)) /
+          2
+        ).toFixed(2)
       : "—";
 
   return (
@@ -56,7 +61,9 @@ export default function OrderBookLadder({ symbol }: OrderBookLadderProps) {
       <div className={styles.spreadInfo}>
         <div className={styles.spreadItem}>
           <span className={styles.label}>BID</span>
-          <span className={`${styles.value} ${styles.buy}`}>{data.bids[0]?.price ?? "—"}</span>
+          <span className={`${styles.value} ${styles.buy}`}>
+            {data.bids[0]?.price ?? "—"}
+          </span>
         </div>
         <div className={styles.spreadItem}>
           <span className={styles.label}>SPREAD</span>
@@ -64,7 +71,9 @@ export default function OrderBookLadder({ symbol }: OrderBookLadderProps) {
         </div>
         <div className={styles.spreadItem}>
           <span className={styles.label}>ASK</span>
-          <span className={`${styles.value} ${styles.sell}`}>{data.asks[0]?.price ?? "—"}</span>
+          <span className={`${styles.value} ${styles.sell}`}>
+            {data.asks[0]?.price ?? "—"}
+          </span>
         </div>
         <div className={styles.spreadItem}>
           <span className={styles.label}>MID</span>
@@ -82,7 +91,12 @@ export default function OrderBookLadder({ symbol }: OrderBookLadderProps) {
           </div>
           <div className={styles.levels}>
             {displayAsks.map((ask) => (
-              <LevelRow key={ask.price} level={ask} side="ask" maxQty={maxQty} />
+              <LevelRow
+                key={ask.price}
+                level={ask}
+                side="ask"
+                maxQty={maxQty}
+              />
             ))}
           </div>
         </div>
@@ -98,7 +112,12 @@ export default function OrderBookLadder({ symbol }: OrderBookLadderProps) {
           </div>
           <div className={styles.levels}>
             {displayBids.map((bid) => (
-              <LevelRow key={bid.price} level={bid} side="bid" maxQty={maxQty} />
+              <LevelRow
+                key={bid.price}
+                level={bid}
+                side="bid"
+                maxQty={maxQty}
+              />
             ))}
           </div>
         </div>
@@ -131,7 +150,11 @@ function LevelRow({
       </span>
       <span className={styles.qty}>{qty.toFixed(3)}</span>
       <span className={styles.total}>{level.cumQty.toFixed(3)}</span>
-      <div className={styles.bar} style={{ width: `${barWidth}%` }} data-side={side} />
+      <div
+        className={styles.bar}
+        style={{ width: `${barWidth}%` }}
+        data-side={side}
+      />
     </div>
   );
 }
