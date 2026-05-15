@@ -32,8 +32,8 @@ func Load(path string) (Config, error) {
 	v.SetDefault("health.addr", ":8080")
 
 	// Allow env vars to override config file values.
-	v.BindEnv("redis.addr", "REDIS_ADDR")         //nolint:errcheck
-	v.BindEnv("redis.password", "REDIS_PASSWORD")  //nolint:errcheck
+	v.BindEnv("redis.addr", "REDIS_ADDR")             //nolint:errcheck
+	v.BindEnv("redis.password", "REDIS_PASSWORD")     //nolint:errcheck
 	v.BindEnv("stream_namespace", "STREAM_NAMESPACE") //nolint:errcheck
 
 	if err := v.ReadInConfig(); err != nil {
