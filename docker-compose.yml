@@ -8,8 +8,6 @@ volumes:
     name: erebor_timescale_data
   erebor_grafana_data:
     name: erebor_grafana_data
-  erebor_redis_data:
-    name: erebor_redis_data
 
 services:
   timescaledb:
@@ -29,23 +27,6 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
-    networks:
-      - erebor_net
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    container_name: erebor-redis
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-erebor_dev}", "--appendonly", "yes"]
-    ports:
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - erebor_redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-erebor_dev}", "ping"]
-      interval: 2s
-      timeout: 5s
-      retries: 15
     networks:
       - erebor_net
     restart: unless-stopped
