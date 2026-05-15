@@ -7,20 +7,28 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "next": "^15.1.0",
+    "pg": "^8.20.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["sharp"]
+    "onlyBuiltDependencies": [
+      "sharp"
+    ]
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.0"
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.6"
   }
 }
