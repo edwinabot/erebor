@@ -12,10 +12,7 @@ export async function GET(request: NextRequest) {
   try {
     const row = await queryLatestSnapshot(getPool(), symbol.toUpperCase());
     if (!row) {
-      return NextResponse.json(
-        { error: `no snapshot found for ${symbol}` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: `no snapshot found for ${symbol}` }, { status: 404 });
     }
     return NextResponse.json(toOrderBookResponse(row));
   } catch (err) {

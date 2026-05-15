@@ -69,13 +69,13 @@ export default function OrderBookHeatmap({ symbol }: OrderBookHeatmapProps) {
 
         let r: number, g: number, b: number, a: number;
         if (t < 0.25) {
-          [r, g, b, a] = [0, 191, 255, t * 0.8];      // blue (sparse)
+          [r, g, b, a] = [0, 191, 255, t * 0.8]; // blue (sparse)
         } else if (t < 0.5) {
-          [r, g, b, a] = [0, 217, 102, t * 0.8];      // green
+          [r, g, b, a] = [0, 217, 102, t * 0.8]; // green
         } else if (t < 0.75) {
-          [r, g, b, a] = [255, 215, 0, t * 0.8];      // yellow
+          [r, g, b, a] = [255, 215, 0, t * 0.8]; // yellow
         } else {
-          [r, g, b, a] = [255, 23, 68, t * 0.9];      // red (dense)
+          [r, g, b, a] = [255, 23, 68, t * 0.9]; // red (dense)
         }
 
         const x = pad.left + fi * cellW;
@@ -118,7 +118,7 @@ export default function OrderBookHeatmap({ symbol }: OrderBookHeatmapProps) {
           second: "2-digit",
         }),
         x,
-        pad.top + gh + 18,
+        pad.top + gh + 18
       );
     }
   }, [data]);

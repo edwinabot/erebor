@@ -20,9 +20,7 @@ export function useSpreadData(symbol: string) {
 
     const fetchData = async () => {
       try {
-        const res = await fetch(
-          `/api/spread?symbol=${encodeURIComponent(symbol)}&limit=60`
-        );
+        const res = await fetch(`/api/spread?symbol=${encodeURIComponent(symbol)}&limit=60`);
         const json = await res.json();
         if (!cancelled && res.ok) setData(json);
       } catch {

@@ -102,10 +102,7 @@ export function toSpreadData(rows: SnapshotRow[]): SpreadData {
   return { symbol: rows[0].symbol, samples };
 }
 
-export function toImbalanceData(
-  rows: SnapshotRow[],
-  depthLevels: number
-): ImbalanceData {
+export function toImbalanceData(rows: SnapshotRow[], depthLevels: number): ImbalanceData {
   if (rows.length === 0) {
     return { symbol: "", depth_levels: depthLevels, samples: [] };
   }

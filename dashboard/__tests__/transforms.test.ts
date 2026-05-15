@@ -145,8 +145,8 @@ describe("toImbalanceData", () => {
   it("computes bid_qty, ask_qty, and imbalance for given depth", () => {
     const result = toImbalanceData(rows, 2);
     const s = result.samples[0];
-    expect(s.bid_qty).toBe("15.00");  // 10 + 5
-    expect(s.ask_qty).toBe("5.00");   // 3 + 2
+    expect(s.bid_qty).toBe("15.00"); // 10 + 5
+    expect(s.ask_qty).toBe("5.00"); // 3 + 2
     // imbalance = (15 - 5) / (15 + 5) = 10/20 = 0.5000
     expect(s.imbalance).toBe("0.5000");
   });
