@@ -14,6 +14,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const signalsSuffix = ":signals"
+
 func nopLogger() *zap.Logger { return zap.NewNop() }
 
 // fastCollector creates a ResultCollector with a short XRead block for fast test teardown.
@@ -55,11 +57,11 @@ func waitForSignals(t *testing.T, col *collector.ResultCollector, want int64, ti
 
 // ── basic collection ──────────────────────────────────────────────────────────
 
-func TestCollector_CountsSignals(t *testing.T) {
+func TestCollectorCountsSignals(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
-	seedSignals(t, client, ns+":signals", "BTCUSDT", 5)
+	seedSignals(t, client, ns+signalsSuffix, "BTCUSDT", 5)
 
 	col := fastCollector(client, ns, "run-test")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -74,12 +76,12 @@ func TestCollector_CountsSignals(t *testing.T) {
 	assert.Equal(t, 5, counts["BTCUSDT"])
 }
 
-func TestCollector_MultipleSymbols(t *testing.T) {
+func TestCollectorMultipleSymbols(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
-	seedSignals(t, client, ns+":signals", "BTCUSDT", 3)
-	seedSignals(t, client, ns+":signals", "ETHUSDT", 2)
+	seedSignals(t, client, ns+signalsSuffix, "BTCUSDT", 3)
+	seedSignals(t, client, ns+signalsSuffix, "ETHUSDT", 2)
 
 	col := fastCollector(client, ns, "run-multi")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -95,7 +97,7 @@ func TestCollector_MultipleSymbols(t *testing.T) {
 	assert.Equal(t, 2, counts["ETHUSDT"])
 }
 
-func TestCollector_EmptyStream_StartsAndStopsCleanly(t *testing.T) {
+func TestCollectorEmptyStreamStartsAndStopsCleanly(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -110,11 +112,11 @@ func TestCollector_EmptyStream_StartsAndStopsCleanly(t *testing.T) {
 	assert.Equal(t, int64(0), col.TotalSignals())
 }
 
-func TestCollector_SignalCountsIsSafeToCallConcurrently(t *testing.T) {
+func TestCollectorSignalCountsIsSafeToCallConcurrently(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
-	seedSignals(t, client, ns+":signals", "BTCUSDT", 10)
+	seedSignals(t, client, ns+signalsSuffix, "BTCUSDT", 10)
 
 	col := fastCollector(client, ns, "run-concurrent")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -135,7 +137,7 @@ func TestCollector_SignalCountsIsSafeToCallConcurrently(t *testing.T) {
 	<-done
 }
 
-func TestCollector_StopAndWait_DoesNotBlock(t *testing.T) {
+func TestCollectorStopAndWaitDoesNotBlock(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -159,7 +161,7 @@ func TestCollector_StopAndWait_DoesNotBlock(t *testing.T) {
 
 // ── messages arrive after Start ───────────────────────────────────────────────
 
-func TestCollector_MessagesArrivedAfterStart_AreCollected(t *testing.T) {
+func TestCollectorMessagesArrivedAfterStartAreCollected(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -168,7 +170,7 @@ func TestCollector_MessagesArrivedAfterStart_AreCollected(t *testing.T) {
 	col.Start(ctx)
 
 	time.Sleep(10 * time.Millisecond)
-	seedSignals(t, client, ns+":signals", "BTCUSDT", 4)
+	seedSignals(t, client, ns+signalsSuffix, "BTCUSDT", 4)
 
 	waitForSignals(t, col, 4, 3*time.Second)
 	cancel()
@@ -179,15 +181,15 @@ func TestCollector_MessagesArrivedAfterStart_AreCollected(t *testing.T) {
 
 // ── namespace isolation ───────────────────────────────────────────────────────
 
-func TestCollector_OnlyReadsOwnNamespace(t *testing.T) {
+func TestCollectorOnlyReadsOwnNamespace(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 
 	ns1 := testutil.UniqueNamespace(t)
 	ns2 := testutil.UniqueNamespace(t)
 
 	// Seed 3 signals in ns1, 5 signals in ns2.
-	seedSignals(t, client, ns1+":signals", "BTCUSDT", 3)
-	seedSignals(t, client, ns2+":signals", "BTCUSDT", 5)
+	seedSignals(t, client, ns1+signalsSuffix, "BTCUSDT", 3)
+	seedSignals(t, client, ns2+signalsSuffix, "BTCUSDT", 5)
 
 	col := fastCollector(client, ns1, "run-ns1")
 	ctx, cancel := context.WithCancel(context.Background())

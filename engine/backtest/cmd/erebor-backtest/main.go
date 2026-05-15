@@ -24,6 +24,18 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// parsedFlags holds the validated, parsed values from CLI flags.
+type parsedFlags struct {
+	runID          string
+	symbols        []string
+	from           time.Time
+	to             time.Time
+	speedMode      domain.SpeedMode
+	speedFactor    float64
+	depth          int
+	strategyConfig string
+}
+
 func main() {
 	// ── CLI flags ────────────────────────────────────────────────────────────
 
@@ -50,67 +62,33 @@ func main() {
 
 	root := logger.With(zap.String("component", "main"))
 
-	// ── Validate required flags ──────────────────────────────────────────────
+	// ── Validate and parse flags ─────────────────────────────────────────────
 
-	if *symbolsFlag == "" {
-		root.Fatal("--symbols is required")
-	}
-	if *fromFlag == "" {
-		root.Fatal("--from is required")
-	}
-	if *toFlag == "" {
-		root.Fatal("--to is required")
-	}
-
-	symbols := splitSymbols(*symbolsFlag)
-	if len(symbols) == 0 {
-		root.Fatal("--symbols must contain at least one symbol")
-	}
-
-	from, err := time.Parse(time.RFC3339, *fromFlag)
+	pf, err := validateFlags(*symbolsFlag, *fromFlag, *toFlag, *speedFlag, *strategyConfigFlag, *speedFactorFlag, *depthFlag)
 	if err != nil {
-		root.Fatal("--from must be a valid RFC3339 timestamp", zap.String("value", *fromFlag), zap.Error(err))
-	}
-	to, err := time.Parse(time.RFC3339, *toFlag)
-	if err != nil {
-		root.Fatal("--to must be a valid RFC3339 timestamp", zap.String("value", *toFlag), zap.Error(err))
-	}
-	if !to.After(from) {
-		root.Fatal("--to must be after --from", zap.Time("from", from), zap.Time("to", to))
-	}
-
-	speedMode, err := parseSpeedMode(*speedFlag)
-	if err != nil {
-		root.Fatal("invalid --speed value", zap.String("value", *speedFlag), zap.Error(err))
-	}
-	if speedMode == domain.SpeedNX && *speedFactorFlag <= 0 {
-		root.Fatal("--speed-factor must be positive for NX mode", zap.Float64("value", *speedFactorFlag))
-	}
-
-	if !json.Valid([]byte(*strategyConfigFlag)) {
-		root.Fatal("--strategy-config is not valid JSON", zap.String("value", *strategyConfigFlag))
+		root.Fatal("invalid flags", zap.Error(err))
 	}
 
 	// ── Run ID ───────────────────────────────────────────────────────────────
 
 	runID := *runIDFlag
 	if runID == "" {
-		id, err := uuid.NewV7()
-		if err != nil {
-			root.Fatal("failed to generate run ID", zap.Error(err))
+		id, genErr := uuid.NewV7()
+		if genErr != nil {
+			root.Fatal("failed to generate run ID", zap.Error(genErr))
 		}
 		runID = id.String()
 	}
 
 	root.Info("erebor-backtest starting",
 		zap.String("run_id", runID),
-		zap.Strings("symbols", symbols),
-		zap.Time("from", from),
-		zap.Time("to", to),
-		zap.String("speed_mode", string(speedMode)),
-		zap.Float64("speed_factor", *speedFactorFlag),
-		zap.Int("depth", *depthFlag),
-		zap.String("strategy_config", *strategyConfigFlag),
+		zap.Strings("symbols", pf.symbols),
+		zap.Time("from", pf.from),
+		zap.Time("to", pf.to),
+		zap.String("speed_mode", string(pf.speedMode)),
+		zap.Float64("speed_factor", pf.speedFactor),
+		zap.Int("depth", pf.depth),
+		zap.String("strategy_config", pf.strategyConfig),
 	)
 
 	// ── Infrastructure config ────────────────────────────────────────────────
@@ -165,13 +143,16 @@ func main() {
 	ctrlPub := publisher.NewControlPublisher(redisClient, namespace, logger)
 
 	r := runner.New(
-		runID,
-		symbols,
-		from, to,
-		*depthFlag,
-		speedMode,
-		*speedFactorFlag,
-		*strategyConfigFlag,
+		runner.RunnerConfig{
+			RunID:          runID,
+			Symbols:        pf.symbols,
+			From:           pf.from,
+			To:             pf.to,
+			Depth:          pf.depth,
+			SpeedMode:      pf.speedMode,
+			SpeedFactor:    pf.speedFactor,
+			StrategyConfig: pf.strategyConfig,
+		},
 		btRepo,
 		ingestRepo,
 		l2Pub,
@@ -193,6 +174,59 @@ func main() {
 	}
 
 	root.Info("erebor-backtest finished", zap.String("run_id", runID))
+}
+
+// validateFlags validates and parses all CLI flag values, returning a parsedFlags
+// struct. Returns an error describing the first invalid value encountered.
+func validateFlags(symbolsFlag, fromFlag, toFlag, speedFlag, strategyConfigFlag string, speedFactorFlag float64, depthFlag int) (parsedFlags, error) {
+	if symbolsFlag == "" {
+		return parsedFlags{}, fmt.Errorf("--symbols is required")
+	}
+	if fromFlag == "" {
+		return parsedFlags{}, fmt.Errorf("--from is required")
+	}
+	if toFlag == "" {
+		return parsedFlags{}, fmt.Errorf("--to is required")
+	}
+
+	symbols := splitSymbols(symbolsFlag)
+	if len(symbols) == 0 {
+		return parsedFlags{}, fmt.Errorf("--symbols must contain at least one symbol")
+	}
+
+	from, err := time.Parse(time.RFC3339, fromFlag)
+	if err != nil {
+		return parsedFlags{}, fmt.Errorf("--from must be a valid RFC3339 timestamp (%q): %w", fromFlag, err)
+	}
+	to, err := time.Parse(time.RFC3339, toFlag)
+	if err != nil {
+		return parsedFlags{}, fmt.Errorf("--to must be a valid RFC3339 timestamp (%q): %w", toFlag, err)
+	}
+	if !to.After(from) {
+		return parsedFlags{}, fmt.Errorf("--to (%s) must be after --from (%s)", to, from)
+	}
+
+	speedMode, err := parseSpeedMode(speedFlag)
+	if err != nil {
+		return parsedFlags{}, fmt.Errorf("invalid --speed value: %w", err)
+	}
+	if speedMode == domain.SpeedNX && speedFactorFlag <= 0 {
+		return parsedFlags{}, fmt.Errorf("--speed-factor must be positive for NX mode (got %g)", speedFactorFlag)
+	}
+
+	if !json.Valid([]byte(strategyConfigFlag)) {
+		return parsedFlags{}, fmt.Errorf("--strategy-config is not valid JSON (%q)", strategyConfigFlag)
+	}
+
+	return parsedFlags{
+		symbols:        symbols,
+		from:           from,
+		to:             to,
+		speedMode:      speedMode,
+		speedFactor:    speedFactorFlag,
+		depth:          depthFlag,
+		strategyConfig: strategyConfigFlag,
+	}, nil
 }
 
 // splitSymbols parses a comma-separated symbols string into a deduplicated,

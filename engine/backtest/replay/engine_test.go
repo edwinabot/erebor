@@ -17,13 +17,15 @@ import (
 	"go.uber.org/zap"
 )
 
+const l2StreamSuffix = ":l2:BTCUSDT"
+
 // ── mock ingest repository ────────────────────────────────────────────────────
 
 type mockIngestRepo struct {
-	checkpoint ingestdomain.SnapshotEvent
+	checkpoint    ingestdomain.SnapshotEvent
 	checkpointErr error
-	diffs     []ingestdomain.DiffEvent
-	diffsErr  error
+	diffs         []ingestdomain.DiffEvent
+	diffsErr      error
 }
 
 func (m *mockIngestRepo) WriteDiff(_ context.Context, _ ingestdomain.DiffEvent) error {
@@ -58,9 +60,13 @@ func makeEngine(
 ) *replay.Engine {
 	t.Helper()
 	return replay.NewEngine(
-		"run-test", symbol,
-		time.Now().Add(-time.Hour), time.Now(),
-		10,
+		replay.EngineConfig{
+			RunID:  "run-test",
+			Symbol: symbol,
+			From:   time.Now().Add(-time.Hour),
+			To:     time.Now(),
+			Depth:  10,
+		},
 		ingestRepo,
 		btRepo,
 		l2Pub, ctrlPub,
@@ -71,7 +77,7 @@ func makeEngine(
 
 // ── happy path ────────────────────────────────────────────────────────────────
 
-func TestEngine_ReplaysDiffsAndPublishesL2Events(t *testing.T) {
+func TestEngineReplaysDiffsAndPublishesL2Events(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -87,11 +93,11 @@ func TestEngine_ReplaysDiffsAndPublishesL2Events(t *testing.T) {
 	eng := makeEngine(t, "BTCUSDT", ingestRepo, &mockBtWriter{}, l2Pub, ctrlPub, speed)
 	require.NoError(t, eng.Run(context.Background()))
 
-	msgs := testutil.ReadAllStream(t, client, ns+":l2:BTCUSDT")
+	msgs := testutil.ReadAllStream(t, client, ns+l2StreamSuffix)
 	assert.Len(t, msgs, 5, "one L2 event must be published per diff")
 }
 
-func TestEngine_EventTimeComesFromDiff_NotTimeNow(t *testing.T) {
+func TestEngineEventTimeComesFromDiffNotTimeNow(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -114,7 +120,7 @@ func TestEngine_EventTimeComesFromDiff_NotTimeNow(t *testing.T) {
 	eng := makeEngine(t, "BTCUSDT", ingestRepo, &mockBtWriter{}, l2Pub, ctrlPub, speed)
 	require.NoError(t, eng.Run(context.Background()))
 
-	msgs := testutil.ReadAllStream(t, client, ns+":l2:BTCUSDT")
+	msgs := testutil.ReadAllStream(t, client, ns+l2StreamSuffix)
 	require.Len(t, msgs, 1)
 
 	// The event_time in Redis must equal the diff's EventTime, not wall clock.
@@ -125,7 +131,7 @@ func TestEngine_EventTimeComesFromDiff_NotTimeNow(t *testing.T) {
 	)
 }
 
-func TestEngine_RunIDPropagatedToStream(t *testing.T) {
+func TestEngineRunIDPropagatedToStream(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -139,20 +145,25 @@ func TestEngine_RunIDPropagatedToStream(t *testing.T) {
 	speed := replay.NewSpeedController(domain.SpeedAFAP, 1.0, zap.NewNop())
 
 	eng := replay.NewEngine(
-		"my-run-id", "BTCUSDT",
-		baseTime.Add(-time.Hour), baseTime.Add(time.Hour),
-		10, ingestRepo, &mockBtWriter{}, l2Pub, ctrlPub, speed, zap.NewNop(),
+		replay.EngineConfig{
+			RunID:  "my-run-id",
+			Symbol: "BTCUSDT",
+			From:   baseTime.Add(-time.Hour),
+			To:     baseTime.Add(time.Hour),
+			Depth:  10,
+		},
+		ingestRepo, &mockBtWriter{}, l2Pub, ctrlPub, speed, zap.NewNop(),
 	)
 	require.NoError(t, eng.Run(context.Background()))
 
-	msgs := testutil.ReadAllStream(t, client, ns+":l2:BTCUSDT")
+	msgs := testutil.ReadAllStream(t, client, ns+l2StreamSuffix)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "my-run-id", msgs[0].Values["run_id"])
 }
 
 // ── empty diffs ───────────────────────────────────────────────────────────────
 
-func TestEngine_NoDiffs_PublishesNothing(t *testing.T) {
+func TestEngineNoDiffsPublishesNothing(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -165,13 +176,13 @@ func TestEngine_NoDiffs_PublishesNothing(t *testing.T) {
 	eng := makeEngine(t, "BTCUSDT", ingestRepo, &mockBtWriter{}, l2Pub, ctrlPub, speed)
 	require.NoError(t, eng.Run(context.Background()))
 
-	msgs := testutil.ReadAllStream(t, client, ns+":l2:BTCUSDT")
+	msgs := testutil.ReadAllStream(t, client, ns+l2StreamSuffix)
 	assert.Empty(t, msgs, "no diffs → no published events")
 }
 
 // ── data gap ──────────────────────────────────────────────────────────────────
 
-func TestEngine_DataGap_PublishesControlEvent(t *testing.T) {
+func TestEngineDataGapPublishesControlEvent(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -211,13 +222,13 @@ func TestEngine_DataGap_PublishesControlEvent(t *testing.T) {
 	assert.True(t, hasGap, "DATA_GAP control event must be published when a sequence gap is detected")
 
 	// Both diffs should still produce L2 events despite the gap.
-	l2Msgs := testutil.ReadAllStream(t, client, ns+":l2:BTCUSDT")
+	l2Msgs := testutil.ReadAllStream(t, client, ns+l2StreamSuffix)
 	assert.Len(t, l2Msgs, 2, "replay must continue after gap")
 }
 
 // ── checkpoint error ──────────────────────────────────────────────────────────
 
-func TestEngine_CheckpointError_ReturnsError(t *testing.T) {
+func TestEngineCheckpointErrorReturnsError(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -234,7 +245,7 @@ func TestEngine_CheckpointError_ReturnsError(t *testing.T) {
 
 // ── context cancellation ──────────────────────────────────────────────────────
 
-func TestEngine_ContextCancelled_StopsReplay(t *testing.T) {
+func TestEngineContextCancelledStopsReplay(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 

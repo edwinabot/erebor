@@ -16,7 +16,7 @@ func nopLogger() *zap.Logger { return zap.NewNop() }
 
 // ── AFAP mode ────────────────────────────────────────────────────────────────
 
-func TestSpeedController_AFAP_ReturnsImmediately(t *testing.T) {
+func TestSpeedControllerAFAPReturnsImmediately(t *testing.T) {
 	sc := replay.NewSpeedController(domain.SpeedAFAP, 1.0, nopLogger())
 
 	t0 := time.Now()
@@ -30,7 +30,7 @@ func TestSpeedController_AFAP_ReturnsImmediately(t *testing.T) {
 	assert.Less(t, elapsed, 10*time.Millisecond, "AFAP must not sleep")
 }
 
-func TestSpeedController_AFAP_ZeroPrevTime(t *testing.T) {
+func TestSpeedControllerAFAPZeroPrevTime(t *testing.T) {
 	sc := replay.NewSpeedController(domain.SpeedAFAP, 1.0, nopLogger())
 
 	t0 := time.Now()
@@ -43,7 +43,7 @@ func TestSpeedController_AFAP_ZeroPrevTime(t *testing.T) {
 
 // ── NX mode ──────────────────────────────────────────────────────────────────
 
-func TestSpeedController_NX_SleesDividedByFactor(t *testing.T) {
+func TestSpeedControllerNXSleepsDividedByFactor(t *testing.T) {
 	const factor = 10.0
 	sc := replay.NewSpeedController(domain.SpeedNX, factor, nopLogger())
 
@@ -64,7 +64,7 @@ func TestSpeedController_NX_SleesDividedByFactor(t *testing.T) {
 		"NX sleep must not significantly exceed Δt/factor")
 }
 
-func TestSpeedController_NX_ZeroPrevTimeSkipsSleep(t *testing.T) {
+func TestSpeedControllerNXZeroPrevTimeSkipsSleep(t *testing.T) {
 	sc := replay.NewSpeedController(domain.SpeedNX, 2.0, nopLogger())
 
 	t0 := time.Now()
@@ -75,7 +75,7 @@ func TestSpeedController_NX_ZeroPrevTimeSkipsSleep(t *testing.T) {
 	assert.Less(t, elapsed, 10*time.Millisecond, "zero prevTime must skip sleep regardless of mode")
 }
 
-func TestSpeedController_NX_NegativeDeltaSkipsSleep(t *testing.T) {
+func TestSpeedControllerNXNegativeDeltaSkipsSleep(t *testing.T) {
 	sc := replay.NewSpeedController(domain.SpeedNX, 2.0, nopLogger())
 
 	prev := time.Now().Add(time.Second) // prev is AFTER curr
@@ -91,7 +91,7 @@ func TestSpeedController_NX_NegativeDeltaSkipsSleep(t *testing.T) {
 
 // ── WALL_CLOCK mode ──────────────────────────────────────────────────────────
 
-func TestSpeedController_WallClock_SleepsEventDelta(t *testing.T) {
+func TestSpeedControllerWallClockSleepsEventDelta(t *testing.T) {
 	sc := replay.NewSpeedController(domain.SpeedWallClock, 1.0, nopLogger())
 
 	eventDelta := 50 * time.Millisecond
@@ -109,7 +109,7 @@ func TestSpeedController_WallClock_SleepsEventDelta(t *testing.T) {
 
 // ── context cancellation ─────────────────────────────────────────────────────
 
-func TestSpeedController_CancelledContext_ReturnsError(t *testing.T) {
+func TestSpeedControllerCancelledContextReturnsError(t *testing.T) {
 	sc := replay.NewSpeedController(domain.SpeedWallClock, 1.0, nopLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -122,7 +122,7 @@ func TestSpeedController_CancelledContext_ReturnsError(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-func TestSpeedController_ContextCancelledDuringSleep_ReturnsError(t *testing.T) {
+func TestSpeedControllerContextCancelledDuringSleepReturnsError(t *testing.T) {
 	sc := replay.NewSpeedController(domain.SpeedWallClock, 1.0, nopLogger())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)

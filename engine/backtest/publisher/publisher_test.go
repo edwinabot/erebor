@@ -16,11 +16,17 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	testRunID           = "run-001"
+	l2StreamSuffix      = ":l2:BTCUSDT"
+	controlStreamSuffix = ":control"
+)
+
 func nopLogger() *zap.Logger { return zap.NewNop() }
 
 // ── L2Publisher ───────────────────────────────────────────────────────────────
 
-func TestL2Publisher_PublishesCorrectWireFormat(t *testing.T) {
+func TestL2PublisherPublishesCorrectWireFormat(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -34,14 +40,14 @@ func TestL2Publisher_PublishesCorrectWireFormat(t *testing.T) {
 		{Price: decimal.RequireFromString("50001.00"), Quantity: decimal.RequireFromString("1.0")},
 	}
 
-	err := pub.Publish(context.Background(), "run-001", "BTCUSDT", eventTime, 12345, bids, asks)
+	err := pub.Publish(context.Background(), testRunID, "BTCUSDT", eventTime, 12345, bids, asks)
 	require.NoError(t, err)
 
-	msgs := testutil.ReadAllStream(t, client, ns+":l2:BTCUSDT")
+	msgs := testutil.ReadAllStream(t, client, ns+l2StreamSuffix)
 	require.Len(t, msgs, 1)
 
 	vals := msgs[0].Values
-	assert.Equal(t, "run-001", vals["run_id"])
+	assert.Equal(t, testRunID, vals["run_id"])
 	assert.Equal(t, "BTCUSDT", vals["symbol"])
 	assert.Equal(t, eventTime.UTC().Format(time.RFC3339Nano), vals["event_time"])
 	assert.Equal(t, "12345", vals["last_update_id"])
@@ -54,19 +60,19 @@ func TestL2Publisher_PublishesCorrectWireFormat(t *testing.T) {
 	assert.Equal(t, "1.5", bidsDecoded[0][1])
 }
 
-func TestL2Publisher_SymbolIsUppercased(t *testing.T) {
+func TestL2PublisherSymbolIsUppercased(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
 	pub := publisher.NewL2Publisher(client, ns, nopLogger())
-	err := pub.Publish(context.Background(), "run-001", "btcusdt", time.Now(), 1, nil, nil)
+	err := pub.Publish(context.Background(), testRunID, "btcusdt", time.Now(), 1, nil, nil)
 	require.NoError(t, err)
 
-	msgs := testutil.ReadAllStream(t, client, ns+":l2:BTCUSDT")
+	msgs := testutil.ReadAllStream(t, client, ns+l2StreamSuffix)
 	require.Len(t, msgs, 1, "stream key must use uppercase symbol")
 }
 
-func TestL2Publisher_EmptyLevelsPublishEmptyArrays(t *testing.T) {
+func TestL2PublisherEmptyLevelsPublishEmptyArrays(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -82,7 +88,7 @@ func TestL2Publisher_EmptyLevelsPublishEmptyArrays(t *testing.T) {
 	assert.Empty(t, bids)
 }
 
-func TestL2Publisher_MultiplePublishesGoToSameStream(t *testing.T) {
+func TestL2PublisherMultiplePublishesGoToSameStream(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 	pub := publisher.NewL2Publisher(client, ns, nopLogger())
@@ -92,11 +98,11 @@ func TestL2Publisher_MultiplePublishesGoToSameStream(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	msgs := testutil.ReadAllStream(t, client, ns+":l2:BTCUSDT")
+	msgs := testutil.ReadAllStream(t, client, ns+l2StreamSuffix)
 	assert.Len(t, msgs, 5)
 }
 
-func TestL2Publisher_LiveRunIDIsEmptyString(t *testing.T) {
+func TestL2PublisherLiveRunIDIsEmptyString(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 	pub := publisher.NewL2Publisher(client, ns, nopLogger())
@@ -105,14 +111,14 @@ func TestL2Publisher_LiveRunIDIsEmptyString(t *testing.T) {
 	err := pub.Publish(context.Background(), "", "BTCUSDT", time.Now(), 1, nil, nil)
 	require.NoError(t, err)
 
-	msgs := testutil.ReadAllStream(t, client, ns+":l2:BTCUSDT")
+	msgs := testutil.ReadAllStream(t, client, ns+l2StreamSuffix)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "", msgs[0].Values["run_id"], "live event must have empty run_id")
 }
 
 // ── ControlPublisher ──────────────────────────────────────────────────────────
 
-func TestControlPublisher_PublishesReplayStart(t *testing.T) {
+func TestControlPublisherPublishesReplayStart(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 
@@ -124,7 +130,7 @@ func TestControlPublisher_PublishesReplayStart(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	msgs := testutil.ReadAllStream(t, client, ns+":control")
+	msgs := testutil.ReadAllStream(t, client, ns+controlStreamSuffix)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "run-abc", msgs[0].Values["run_id"])
 	assert.Equal(t, string(domain.ControlReplayStart), msgs[0].Values["type"])
@@ -134,7 +140,7 @@ func TestControlPublisher_PublishesReplayStart(t *testing.T) {
 	assert.Equal(t, "BTCUSDT,ETHUSDT", payload["symbols"])
 }
 
-func TestControlPublisher_AllEventTypes(t *testing.T) {
+func TestControlPublisherAllEventTypes(t *testing.T) {
 	types := []domain.ControlEventType{
 		domain.ControlReplayStart,
 		domain.ControlReplayComplete,
@@ -156,14 +162,14 @@ func TestControlPublisher_AllEventTypes(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			msgs := testutil.ReadAllStream(t, client, ns+":control")
+			msgs := testutil.ReadAllStream(t, client, ns+controlStreamSuffix)
 			require.Len(t, msgs, 1)
 			assert.Equal(t, string(evType), msgs[0].Values["type"])
 		})
 	}
 }
 
-func TestControlPublisher_NilPayloadSerialises(t *testing.T) {
+func TestControlPublisherNilPayloadSerialises(t *testing.T) {
 	_, client := testutil.NewMiniredis(t)
 	ns := testutil.UniqueNamespace(t)
 	pub := publisher.NewControlPublisher(client, ns, nopLogger())
@@ -175,7 +181,7 @@ func TestControlPublisher_NilPayloadSerialises(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	msgs := testutil.ReadAllStream(t, client, ns+":control")
+	msgs := testutil.ReadAllStream(t, client, ns+controlStreamSuffix)
 	require.Len(t, msgs, 1)
 	// nil map marshals to "null" — must not crash the publisher.
 	assert.NotEmpty(t, msgs[0].Values["payload"])

@@ -15,6 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testBidPrice = "50000.00"
+	testAskPrice = "50001.00"
+)
+
 // NewMiniredis starts an in-process Redis server and returns a connected client.
 // Both are cleaned up via t.Cleanup.
 func NewMiniredis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
@@ -55,11 +60,11 @@ func MakeSnapshot(symbol string, lastUpdateID int64, capturedAt time.Time) inges
 		CapturedAt:   capturedAt,
 		LastUpdateID: lastUpdateID,
 		Bids: []ingestdomain.PriceLevel{
-			{Price: decimal.RequireFromString("50000.00"), Quantity: decimal.RequireFromString("1.5")},
+			{Price: decimal.RequireFromString(testBidPrice), Quantity: decimal.RequireFromString("1.5")},
 			{Price: decimal.RequireFromString("49999.00"), Quantity: decimal.RequireFromString("2.0")},
 		},
 		Asks: []ingestdomain.PriceLevel{
-			{Price: decimal.RequireFromString("50001.00"), Quantity: decimal.RequireFromString("1.0")},
+			{Price: decimal.RequireFromString(testAskPrice), Quantity: decimal.RequireFromString("1.0")},
 			{Price: decimal.RequireFromString("50002.00"), Quantity: decimal.RequireFromString("0.5")},
 		},
 	}
@@ -73,10 +78,10 @@ func MakeDiff(symbol string, prevFinalUpdateID int64, eventTime time.Time) inges
 		FirstUpdateID: prevFinalUpdateID + 1,
 		FinalUpdateID: prevFinalUpdateID + 1,
 		Bids: []ingestdomain.PriceLevel{
-			{Price: decimal.RequireFromString("50000.00"), Quantity: decimal.RequireFromString("1.6")},
+			{Price: decimal.RequireFromString(testBidPrice), Quantity: decimal.RequireFromString("1.6")},
 		},
 		Asks: []ingestdomain.PriceLevel{
-			{Price: decimal.RequireFromString("50001.00"), Quantity: decimal.RequireFromString("0.9")},
+			{Price: decimal.RequireFromString(testAskPrice), Quantity: decimal.RequireFromString("0.9")},
 		},
 	}
 }
@@ -92,10 +97,10 @@ func MakeDiffSeq(symbol string, firstUpdateID int64, baseTime time.Time, n int) 
 			FirstUpdateID: id,
 			FinalUpdateID: id,
 			Bids: []ingestdomain.PriceLevel{
-				{Price: decimal.RequireFromString("50000.00"), Quantity: decimal.RequireFromString("1.0")},
+				{Price: decimal.RequireFromString(testBidPrice), Quantity: decimal.RequireFromString("1.0")},
 			},
 			Asks: []ingestdomain.PriceLevel{
-				{Price: decimal.RequireFromString("50001.00"), Quantity: decimal.RequireFromString("1.0")},
+				{Price: decimal.RequireFromString(testAskPrice), Quantity: decimal.RequireFromString("1.0")},
 			},
 		}
 	}

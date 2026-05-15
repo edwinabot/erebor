@@ -17,6 +17,18 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// RunnerConfig holds the configuration parameters for a single backtest run.
+type RunnerConfig struct {
+	RunID          string
+	Symbols        []string
+	From           time.Time
+	To             time.Time
+	Depth          int
+	SpeedMode      domain.SpeedMode
+	SpeedFactor    float64
+	StrategyConfig string
+}
+
 // BacktestRunner orchestrates the full lifecycle of a single backtest run:
 // run record creation, multi-symbol replay fan-out, signal collection,
 // stream TTL, and final status persistence.
@@ -27,15 +39,8 @@ import (
 //	                  → FAILED
 //	                  → CANCELLED   (SIGTERM or context cancellation)
 type BacktestRunner struct {
-	runID          string
-	symbols        []string
-	from           time.Time
-	to             time.Time
-	depth          int
-	speedMode      domain.SpeedMode
-	speedFactor    float64
-	strategyConfig string
-	namespace      string
+	cfg       RunnerConfig
+	namespace string
 
 	btRepo     *repository.BacktestRepository
 	ingestRepo ingestrepository.Repository
@@ -45,16 +50,10 @@ type BacktestRunner struct {
 	logger     *zap.Logger
 }
 
-// New creates a BacktestRunner. namespace must be of the form
-// "erebor:backtest:{run_id}" and is used as the prefix for all stream keys.
+// New creates a BacktestRunner. namespace is derived from cfg.RunID and is used
+// as the prefix for all stream keys.
 func New(
-	runID string,
-	symbols []string,
-	from, to time.Time,
-	depth int,
-	speedMode domain.SpeedMode,
-	speedFactor float64,
-	strategyConfig string,
+	cfg RunnerConfig,
 	btRepo *repository.BacktestRepository,
 	ingestRepo ingestrepository.Repository,
 	l2Pub *publisher.L2Publisher,
@@ -63,21 +62,14 @@ func New(
 	logger *zap.Logger,
 ) *BacktestRunner {
 	return &BacktestRunner{
-		runID:          runID,
-		symbols:        symbols,
-		from:           from,
-		to:             to,
-		depth:          depth,
-		speedMode:      speedMode,
-		speedFactor:    speedFactor,
-		strategyConfig: strategyConfig,
-		namespace:      "erebor:backtest:" + runID,
-		btRepo:         btRepo,
-		ingestRepo:     ingestRepo,
-		l2Pub:          l2Pub,
-		ctrlPub:        ctrlPub,
-		redis:          redisClient,
-		logger:         logger.With(zap.String("component", "backtest-runner"), zap.String("run_id", runID)),
+		cfg:        cfg,
+		namespace:  "erebor:backtest:" + cfg.RunID,
+		btRepo:     btRepo,
+		ingestRepo: ingestRepo,
+		l2Pub:      l2Pub,
+		ctrlPub:    ctrlPub,
+		redis:      redisClient,
+		logger:     logger.With(zap.String("component", "backtest-runner"), zap.String("run_id", cfg.RunID)),
 	}
 }
 
@@ -86,29 +78,29 @@ func New(
 func (r *BacktestRunner) Run(ctx context.Context) error {
 	start := time.Now()
 	r.logger.Info("backtest run starting",
-		zap.String("run_id", r.runID),
-		zap.Strings("symbols", r.symbols),
-		zap.Time("from", r.from),
-		zap.Time("to", r.to),
-		zap.String("speed_mode", string(r.speedMode)),
-		zap.Float64("speed_factor", r.speedFactor),
-		zap.Int("depth", r.depth),
+		zap.String("run_id", r.cfg.RunID),
+		zap.Strings("symbols", r.cfg.Symbols),
+		zap.Time("from", r.cfg.From),
+		zap.Time("to", r.cfg.To),
+		zap.String("speed_mode", string(r.cfg.SpeedMode)),
+		zap.Float64("speed_factor", r.cfg.SpeedFactor),
+		zap.Int("depth", r.cfg.Depth),
 		zap.String("namespace", r.namespace),
 	)
 
 	// 1. Create run record (PENDING).
 	var speedFactor *float64
-	if r.speedMode == domain.SpeedNX {
-		speedFactor = &r.speedFactor
+	if r.cfg.SpeedMode == domain.SpeedNX {
+		speedFactor = &r.cfg.SpeedFactor
 	}
 	rec := domain.RunRecord{
-		RunID:          r.runID,
-		Symbols:        r.symbols,
-		FromTime:       r.from,
-		ToTime:         r.to,
-		SpeedMode:      r.speedMode,
+		RunID:          r.cfg.RunID,
+		Symbols:        r.cfg.Symbols,
+		FromTime:       r.cfg.From,
+		ToTime:         r.cfg.To,
+		SpeedMode:      r.cfg.SpeedMode,
 		SpeedFactor:    speedFactor,
-		StrategyConfig: r.strategyConfig,
+		StrategyConfig: r.cfg.StrategyConfig,
 		Status:         domain.RunStatusPending,
 	}
 	if err := r.btRepo.CreateRun(ctx, rec); err != nil {
@@ -117,36 +109,40 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 
 	// 2. Transition → RUNNING.
 	now := time.Now()
-	if err := r.btRepo.UpdateRunStatus(ctx, r.runID, domain.RunStatusRunning, &now, nil, ""); err != nil {
+	if err := r.btRepo.UpdateRunStatus(ctx, r.cfg.RunID, domain.RunStatusRunning, &now, nil, ""); err != nil {
 		return fmt.Errorf("set run RUNNING: %w", err)
 	}
 
 	// 3. Publish REPLAY_START so consumers can initialise.
 	if err := r.ctrlPub.Publish(ctx, domain.ControlEvent{
-		RunID:   r.runID,
+		RunID:   r.cfg.RunID,
 		Type:    domain.ControlReplayStart,
-		Payload: map[string]string{"symbols": strings.Join(r.symbols, ",")},
+		Payload: map[string]string{"symbols": strings.Join(r.cfg.Symbols, ",")},
 	}); err != nil {
 		r.logger.Warn("failed to publish REPLAY_START; continuing", zap.Error(err))
 	}
 
 	// 4. Start signal collector in background.
-	col := collector.New(r.redis, r.namespace, r.runID, r.logger)
+	col := collector.New(r.redis, r.namespace, r.cfg.RunID, r.logger)
 	colCtx, colCancel := context.WithCancel(context.Background())
 	defer colCancel()
 	col.Start(colCtx)
 
 	// 5. Fan out one ReplayEngine per symbol.
-	speed := replay.NewSpeedController(r.speedMode, r.speedFactor, r.logger)
+	speed := replay.NewSpeedController(r.cfg.SpeedMode, r.cfg.SpeedFactor, r.logger)
 	g, gctx := errgroup.WithContext(ctx)
 
-	for _, sym := range r.symbols {
+	for _, sym := range r.cfg.Symbols {
 		sym := sym
 		g.Go(func() error {
 			eng := replay.NewEngine(
-				r.runID, sym,
-				r.from, r.to,
-				r.depth,
+				replay.EngineConfig{
+					RunID:  r.cfg.RunID,
+					Symbol: sym,
+					From:   r.cfg.From,
+					To:     r.cfg.To,
+					Depth:  r.cfg.Depth,
+				},
 				r.ingestRepo,
 				r.btRepo,
 				r.l2Pub,
@@ -158,7 +154,7 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 		})
 	}
 
-	r.logger.Info("replay engines launched", zap.Int("symbol_count", len(r.symbols)))
+	r.logger.Info("replay engines launched", zap.Int("symbol_count", len(r.cfg.Symbols)))
 	runErr := g.Wait()
 
 	// 6. Stop collector and wait for it to flush.
@@ -181,7 +177,7 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 			zap.Error(ctx.Err()),
 		)
 		r.publishControl(bgCtx, domain.ControlCancelled, nil)
-		_ = r.btRepo.UpdateRunStatus(bgCtx, r.runID, domain.RunStatusCancelled, nil, nil, "")
+		_ = r.btRepo.UpdateRunStatus(bgCtx, r.cfg.RunID, domain.RunStatusCancelled, nil, nil, "")
 		return ctx.Err()
 	}
 
@@ -193,15 +189,15 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 		)
 		r.publishControl(bgCtx, domain.ControlCancelled, nil)
 		completed := time.Now()
-		_ = r.btRepo.UpdateRunStatus(bgCtx, r.runID, domain.RunStatusFailed, nil, &completed, runErr.Error())
+		_ = r.btRepo.UpdateRunStatus(bgCtx, r.cfg.RunID, domain.RunStatusFailed, nil, &completed, runErr.Error())
 		return runErr
 	}
 
 	// 8. Publish REPLAY_COMPLETE (fire-and-forget — erebor-signals drains on its own).
 	if err := r.ctrlPub.Publish(ctx, domain.ControlEvent{
-		RunID:   r.runID,
+		RunID:   r.cfg.RunID,
 		Type:    domain.ControlReplayComplete,
-		Payload: map[string]string{"symbols": strings.Join(r.symbols, ",")},
+		Payload: map[string]string{"symbols": strings.Join(r.cfg.Symbols, ",")},
 	}); err != nil {
 		r.logger.Warn("failed to publish REPLAY_COMPLETE", zap.Error(err))
 	}
@@ -215,12 +211,12 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 
 	// 10. Transition → COMPLETED.
 	completed := time.Now()
-	if err := r.btRepo.UpdateRunStatus(bgCtx, r.runID, domain.RunStatusCompleted, nil, &completed, ""); err != nil {
+	if err := r.btRepo.UpdateRunStatus(bgCtx, r.cfg.RunID, domain.RunStatusCompleted, nil, &completed, ""); err != nil {
 		r.logger.Error("failed to mark run COMPLETED", zap.Error(err))
 	}
 
 	r.logger.Info("backtest run complete",
-		zap.String("run_id", r.runID),
+		zap.String("run_id", r.cfg.RunID),
 		zap.Duration("elapsed", time.Since(start)),
 		zap.Int64("total_signals", col.TotalSignals()),
 		zap.Any("signals_per_symbol", signalCounts),
@@ -231,7 +227,7 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 // publishControl is a best-effort helper used during error/cancellation paths.
 func (r *BacktestRunner) publishControl(ctx context.Context, evType domain.ControlEventType, payload map[string]string) {
 	if err := r.ctrlPub.Publish(ctx, domain.ControlEvent{
-		RunID:   r.runID,
+		RunID:   r.cfg.RunID,
 		Type:    evType,
 		Payload: payload,
 	}); err != nil {
