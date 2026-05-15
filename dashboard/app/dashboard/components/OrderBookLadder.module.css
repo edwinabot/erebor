@@ -35,11 +35,7 @@
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   padding: 16px;
-  background: linear-gradient(
-    135deg,
-    var(--bg-secondary) 0%,
-    var(--bg-tertiary) 100%
-  );
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
   border: 1px solid var(--border-color);
   border-radius: 4px;
 }
@@ -203,12 +199,7 @@
 
 .divider {
   height: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--color-neutral),
-    transparent
-  );
+  background: linear-gradient(90deg, transparent, var(--color-neutral), transparent);
   box-shadow: 0 0 12px rgba(0, 191, 255, 0.4);
   margin: 8px 0;
 }
