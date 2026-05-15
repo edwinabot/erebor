@@ -70,8 +70,8 @@ func main() {
 		cfg.StreamNamespace,
 		cfg.Symbols,
 		cfg.SignalDepth,
-		consumerID,
 		logger,
+		consumer.WithConsumerID(consumerID),
 	)
 
 	if err := cons.Start(ctx); err != nil {
@@ -173,4 +173,3 @@ func parseLevel(s string, fallback zapcore.Level) (zap.AtomicLevel, error) {
 	}
 	return lvl, nil
 }
-

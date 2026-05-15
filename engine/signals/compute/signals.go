@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	two      = decimal.NewFromInt(2)
-	ten000   = decimal.NewFromInt(10000)
+	two    = decimal.NewFromInt(2)
+	ten000 = decimal.NewFromInt(10000)
 )
 
 // All computes every registered signal for the event and returns the results.

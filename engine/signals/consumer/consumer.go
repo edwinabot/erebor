@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	groupName      = "erebor-signals"
+	groupName       = "erebor-signals"
 	defaultBlockDur = 5 * time.Second
-	batchSize      = 20
+	batchSize       = 20
 )
 
 // Option configures a Consumer.
@@ -33,6 +33,13 @@ type Option func(*Consumer)
 // the suite fast while still exercising the full read-loop path.
 func WithBlockDuration(d time.Duration) Option {
 	return func(c *Consumer) { c.blockDur = d }
+}
+
+// WithConsumerID sets the consumer name used in XREADGROUP calls.
+// The default is the group name. Override when running multiple instances
+// to prevent message redistribution within the consumer group.
+func WithConsumerID(id string) Option {
+	return func(c *Consumer) { c.consumerID = id }
 }
 
 // Consumer reads L2BookUpdateEvents from Redis Streams and publishes signals.
@@ -56,7 +63,6 @@ func New(
 	namespace string,
 	symbols []string,
 	signalDepth int,
-	consumerID string,
 	logger *zap.Logger,
 	opts ...Option,
 ) *Consumer {
@@ -66,7 +72,7 @@ func New(
 		namespace:   namespace,
 		symbols:     symbols,
 		signalDepth: signalDepth,
-		consumerID:  consumerID,
+		consumerID:  groupName,
 		blockDur:    defaultBlockDur,
 		logger:      logger.With(zap.String("component", "consumer")),
 	}

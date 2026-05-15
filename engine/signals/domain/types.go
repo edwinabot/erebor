@@ -16,7 +16,7 @@ type PriceLevel struct {
 // Bids are sorted descending (best bid first); Asks ascending (best ask first).
 // EventTime is the authoritative logical clock — never call time.Now() in signal logic.
 type L2BookUpdateEvent struct {
-	RunID        string      // empty = live event
+	RunID        string // empty = live event
 	Symbol       string
 	EventTime    time.Time
 	LastUpdateID int64

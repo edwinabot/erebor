@@ -92,10 +92,10 @@ func TestBookImbalance(t *testing.T) {
 			expected: "0",
 		},
 		{
-			name: "depth=0 means unlimited",
-			bids: levels("100", "2", "99", "2"),
-			asks: levels("101", "1"),
-			depth: 0,
+			name:     "depth=0 means unlimited",
+			bids:     levels("100", "2", "99", "2"),
+			asks:     levels("101", "1"),
+			depth:    0,
 			expected: "0.6", // (4-1)/(4+1)
 		},
 	}

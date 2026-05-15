@@ -11,9 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testTimestamp = "2026-05-15T10:00:00Z"
+
 // ── decodeL2BookUpdateEvent ────────────────────────────────────────────────────
 
-func TestDecodeL2BookUpdateEvent_Valid(t *testing.T) {
+func TestDecodeL2BookUpdateEventValid(t *testing.T) {
 	ts := "2026-05-15T10:00:00.000000000Z"
 	values := map[string]any{
 		"run_id":         "run-abc",
@@ -44,11 +46,11 @@ func TestDecodeL2BookUpdateEvent_Valid(t *testing.T) {
 	assert.True(t, ev.Asks[0].Quantity.Equal(decimal.RequireFromString("0.800")))
 }
 
-func TestDecodeL2BookUpdateEvent_EmptyRunID(t *testing.T) {
+func TestDecodeL2BookUpdateEventEmptyRunID(t *testing.T) {
 	values := map[string]any{
 		"run_id":     "",
 		"symbol":     "ETHUSDT",
-		"event_time": "2026-05-15T10:00:00Z",
+		"event_time": testTimestamp,
 		"bids":       `[]`,
 		"asks":       `[]`,
 	}
@@ -58,9 +60,9 @@ func TestDecodeL2BookUpdateEvent_EmptyRunID(t *testing.T) {
 	assert.Equal(t, "ETHUSDT", ev.Symbol)
 }
 
-func TestDecodeL2BookUpdateEvent_MissingSymbol(t *testing.T) {
+func TestDecodeL2BookUpdateEventMissingSymbol(t *testing.T) {
 	values := map[string]any{
-		"event_time": "2026-05-15T10:00:00Z",
+		"event_time": testTimestamp,
 		"bids":       `[]`,
 		"asks":       `[]`,
 	}
@@ -69,7 +71,7 @@ func TestDecodeL2BookUpdateEvent_MissingSymbol(t *testing.T) {
 	assert.Contains(t, err.Error(), "missing symbol")
 }
 
-func TestDecodeL2BookUpdateEvent_MissingEventTime(t *testing.T) {
+func TestDecodeL2BookUpdateEventMissingEventTime(t *testing.T) {
 	values := map[string]any{
 		"symbol": "BTCUSDT",
 		"bids":   `[]`,
@@ -80,7 +82,7 @@ func TestDecodeL2BookUpdateEvent_MissingEventTime(t *testing.T) {
 	assert.Contains(t, err.Error(), "missing event_time")
 }
 
-func TestDecodeL2BookUpdateEvent_InvalidEventTime(t *testing.T) {
+func TestDecodeL2BookUpdateEventInvalidEventTime(t *testing.T) {
 	values := map[string]any{
 		"symbol":     "BTCUSDT",
 		"event_time": "not-a-timestamp",
@@ -92,10 +94,10 @@ func TestDecodeL2BookUpdateEvent_InvalidEventTime(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse event_time")
 }
 
-func TestDecodeL2BookUpdateEvent_InvalidBidsJSON(t *testing.T) {
+func TestDecodeL2BookUpdateEventInvalidBidsJSON(t *testing.T) {
 	values := map[string]any{
 		"symbol":     "BTCUSDT",
-		"event_time": "2026-05-15T10:00:00Z",
+		"event_time": testTimestamp,
 		"bids":       `{not valid json`,
 		"asks":       `[]`,
 	}
@@ -104,10 +106,10 @@ func TestDecodeL2BookUpdateEvent_InvalidBidsJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "decode bids")
 }
 
-func TestDecodeL2BookUpdateEvent_InvalidAsksJSON(t *testing.T) {
+func TestDecodeL2BookUpdateEventInvalidAsksJSON(t *testing.T) {
 	values := map[string]any{
 		"symbol":     "BTCUSDT",
-		"event_time": "2026-05-15T10:00:00Z",
+		"event_time": testTimestamp,
 		"bids":       `[]`,
 		"asks":       `{not valid json`,
 	}
@@ -116,11 +118,11 @@ func TestDecodeL2BookUpdateEvent_InvalidAsksJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "decode asks")
 }
 
-func TestDecodeL2BookUpdateEvent_MissingLastUpdateID(t *testing.T) {
+func TestDecodeL2BookUpdateEventMissingLastUpdateID(t *testing.T) {
 	// last_update_id is optional; missing = 0
 	values := map[string]any{
 		"symbol":     "BTCUSDT",
-		"event_time": "2026-05-15T10:00:00Z",
+		"event_time": testTimestamp,
 		"bids":       `[]`,
 		"asks":       `[]`,
 	}
@@ -129,10 +131,10 @@ func TestDecodeL2BookUpdateEvent_MissingLastUpdateID(t *testing.T) {
 	assert.Equal(t, int64(0), ev.LastUpdateID)
 }
 
-func TestDecodeL2BookUpdateEvent_EmptyBidsAndAsks(t *testing.T) {
+func TestDecodeL2BookUpdateEventEmptyBidsAndAsks(t *testing.T) {
 	values := map[string]any{
 		"symbol":     "BTCUSDT",
-		"event_time": "2026-05-15T10:00:00Z",
+		"event_time": testTimestamp,
 		"bids":       ``,
 		"asks":       ``,
 	}
@@ -142,10 +144,10 @@ func TestDecodeL2BookUpdateEvent_EmptyBidsAndAsks(t *testing.T) {
 	assert.Empty(t, ev.Asks)
 }
 
-func TestDecodeL2BookUpdateEvent_HighPrecisionDecimal(t *testing.T) {
+func TestDecodeL2BookUpdateEventHighPrecisionDecimal(t *testing.T) {
 	values := map[string]any{
 		"symbol":     "XRPUSDT",
-		"event_time": "2026-05-15T10:00:00Z",
+		"event_time": testTimestamp,
 		"bids":       `[["0.00001234","10000.000000001"]]`,
 		"asks":       `[["0.00001235","9999.999999999"]]`,
 	}
@@ -157,7 +159,7 @@ func TestDecodeL2BookUpdateEvent_HighPrecisionDecimal(t *testing.T) {
 
 // ── decodePriceLevels ─────────────────────────────────────────────────────────
 
-func TestDecodePriceLevels_Valid(t *testing.T) {
+func TestDecodePriceLevelsValid(t *testing.T) {
 	levels, err := decodePriceLevels(`[["100.50","1.500"],["100.00","2.200"]]`)
 	require.NoError(t, err)
 	require.Len(t, levels, 2)
@@ -166,43 +168,43 @@ func TestDecodePriceLevels_Valid(t *testing.T) {
 	assert.True(t, levels[1].Price.Equal(decimal.RequireFromString("100.00")))
 }
 
-func TestDecodePriceLevels_Empty(t *testing.T) {
+func TestDecodePriceLevelsEmpty(t *testing.T) {
 	levels, err := decodePriceLevels(`[]`)
 	require.NoError(t, err)
 	assert.Empty(t, levels)
 }
 
-func TestDecodePriceLevels_EmptyString(t *testing.T) {
+func TestDecodePriceLevelsEmptyString(t *testing.T) {
 	levels, err := decodePriceLevels(``)
 	require.NoError(t, err)
 	assert.Nil(t, levels)
 }
 
-func TestDecodePriceLevels_MalformedJSON(t *testing.T) {
+func TestDecodePriceLevelsMalformedJSON(t *testing.T) {
 	_, err := decodePriceLevels(`{bad`)
 	require.Error(t, err)
 }
 
-func TestDecodePriceLevels_InvalidPrice(t *testing.T) {
+func TestDecodePriceLevelsInvalidPrice(t *testing.T) {
 	_, err := decodePriceLevels(`[["not-a-number","1.0"]]`)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parse price")
 }
 
-func TestDecodePriceLevels_InvalidQuantity(t *testing.T) {
+func TestDecodePriceLevelsInvalidQuantity(t *testing.T) {
 	_, err := decodePriceLevels(`[["100.00","not-a-number"]]`)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parse qty")
 }
 
-func TestDecodePriceLevels_SingleLevel(t *testing.T) {
+func TestDecodePriceLevelsSingleLevel(t *testing.T) {
 	levels, err := decodePriceLevels(`[["94500.00","2.500"]]`)
 	require.NoError(t, err)
 	require.Len(t, levels, 1)
 	assert.True(t, levels[0].Price.Equal(decimal.RequireFromString("94500.00")))
 }
 
-func TestDecodePriceLevels_TenLevels(t *testing.T) {
+func TestDecodePriceLevelsTenLevels(t *testing.T) {
 	pairs := make([][2]string, 10)
 	for i := range pairs {
 		pairs[i] = [2]string{fmt.Sprintf("%d.00", 100+i), "1.000"}
@@ -223,28 +225,28 @@ func TestDecodePriceLevels_TenLevels(t *testing.T) {
 
 // ── isAlreadyExists ───────────────────────────────────────────────────────────
 
-func TestIsAlreadyExists_BusygroupError(t *testing.T) {
+func TestIsAlreadyExistsBusygroupError(t *testing.T) {
 	err := errors.New("BUSYGROUP Consumer Group name already exists")
 	assert.True(t, isAlreadyExists(err))
 }
 
-func TestIsAlreadyExists_OtherError(t *testing.T) {
+func TestIsAlreadyExistsOtherError(t *testing.T) {
 	err := errors.New("ERR no such key")
 	assert.False(t, isAlreadyExists(err))
 }
 
-func TestIsAlreadyExists_Nil(t *testing.T) {
+func TestIsAlreadyExistsNil(t *testing.T) {
 	assert.False(t, isAlreadyExists(nil))
 }
 
-func TestIsAlreadyExists_PartialMatch(t *testing.T) {
+func TestIsAlreadyExistsPartialMatch(t *testing.T) {
 	err := errors.New("connection refused")
 	assert.False(t, isAlreadyExists(err))
 }
 
 // ── inputKey ──────────────────────────────────────────────────────────────────
 
-func TestConsumer_InputKey(t *testing.T) {
+func TestConsumerInputKey(t *testing.T) {
 	tests := []struct {
 		namespace string
 		symbol    string
