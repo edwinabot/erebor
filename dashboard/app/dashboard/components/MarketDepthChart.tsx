@@ -45,16 +45,14 @@ export default function MarketDepthChart({ symbol }: MarketDepthChartProps) {
 
     const maxCumQty = Math.max(
       parseFloat(bids[bids.length - 1].cumulative_quantity),
-      parseFloat(asks[asks.length - 1].cumulative_quantity),
+      parseFloat(asks[asks.length - 1].cumulative_quantity)
     );
 
     // Map a price to canvas x
-    const px = (price: number) =>
-      pad.left + ((price - worstBidPrice) / totalPriceRange) * gw;
+    const px = (price: number) => pad.left + ((price - worstBidPrice) / totalPriceRange) * gw;
 
     // Map a cumulative qty to canvas y (qty grows upward)
-    const py = (cumQty: number) =>
-      pad.top + gh - (cumQty / maxCumQty) * gh;
+    const py = (cumQty: number) => pad.top + gh - (cumQty / maxCumQty) * gh;
 
     // Grid lines
     ctx.strokeStyle = COLORS.border;
