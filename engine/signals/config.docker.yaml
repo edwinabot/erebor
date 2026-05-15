@@ -1,0 +1,20 @@
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+
+# Redis addr and password are injected via REDIS_ADDR and REDIS_PASSWORD env vars.
+redis:
+  addr: "redis:6379"
+
+# Stream namespace is injected via STREAM_NAMESPACE env var (default: erebor:live).
+stream_namespace: "erebor:live"
+
+signal_depth: 10
+
+log:
+  level: "info"
+  file_level: "debug"
+  file_path: ""
+
+health:
+  addr: ":8080"

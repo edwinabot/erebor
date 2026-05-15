@@ -8,3 +8,5 @@ dashboard/node_modules/
 dashboard/.next/
 dashboard/.env.local
 dashboard/.env*.local
+dashboard/tsconfig.tsbuildinfo
+dashboard/coverage/
