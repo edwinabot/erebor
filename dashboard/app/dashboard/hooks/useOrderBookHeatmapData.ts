@@ -32,7 +32,7 @@ function initialData(symbol: string): OrderBookHeatmapData {
   return {
     symbol,
     frames: Array.from({ length: FRAME_COUNT }, (_, i) =>
-      makeFrame(new Date(now - (FRAME_COUNT - i) * 100)),
+      makeFrame(new Date(now - (FRAME_COUNT - i) * 100))
     ),
   };
 }
