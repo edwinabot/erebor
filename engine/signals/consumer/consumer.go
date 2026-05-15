@@ -20,10 +20,20 @@ import (
 )
 
 const (
-	groupName = "erebor-signals"
-	blockDur  = 5 * time.Second
-	batchSize = 20
+	groupName      = "erebor-signals"
+	defaultBlockDur = 5 * time.Second
+	batchSize      = 20
 )
+
+// Option configures a Consumer.
+type Option func(*Consumer)
+
+// WithBlockDuration overrides the XREADGROUP block timeout.
+// The default is 5s; tests should use a shorter value (e.g. 100ms) to keep
+// the suite fast while still exercising the full read-loop path.
+func WithBlockDuration(d time.Duration) Option {
+	return func(c *Consumer) { c.blockDur = d }
+}
 
 // Consumer reads L2BookUpdateEvents from Redis Streams and publishes signals.
 type Consumer struct {
@@ -33,6 +43,7 @@ type Consumer struct {
 	symbols     []string
 	signalDepth int
 	consumerID  string
+	blockDur    time.Duration
 	logger      *zap.Logger
 
 	running atomic.Bool
@@ -47,16 +58,22 @@ func New(
 	signalDepth int,
 	consumerID string,
 	logger *zap.Logger,
+	opts ...Option,
 ) *Consumer {
-	return &Consumer{
+	c := &Consumer{
 		client:      client,
 		pub:         pub,
 		namespace:   namespace,
 		symbols:     symbols,
 		signalDepth: signalDepth,
 		consumerID:  consumerID,
+		blockDur:    defaultBlockDur,
 		logger:      logger.With(zap.String("component", "consumer")),
 	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 // IsRunning reports whether the consumer loop is active. Used by the health endpoint.
@@ -107,7 +124,7 @@ func (c *Consumer) readLoop(ctx context.Context) {
 			Consumer: c.consumerID,
 			Streams:  streamArgs,
 			Count:    batchSize,
-			Block:    blockDur,
+			Block:    c.blockDur,
 		}).Result()
 
 		if err != nil {
