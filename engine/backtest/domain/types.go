@@ -115,16 +115,17 @@ const (
 // OrderEvent is published by erebor-execution to the run's orders stream.
 // EventTime is propagated from the L2BookUpdateEvent that triggered the order.
 type OrderEvent struct {
-	RunID     string
-	Symbol    string
-	EventTime time.Time
-	OrderID   string
-	Side      Side
-	Type      OrderType
-	Price     decimal.Decimal
-	Quantity  decimal.Decimal
-	Status    OrderStatus
-	FillPrice decimal.Decimal
-	FillQty   decimal.Decimal
-	Fee       decimal.Decimal
+	RunID      string
+	Symbol     string
+	EventTime  time.Time
+	OrderID    string
+	Side       Side
+	Type       OrderType
+	Price      decimal.Decimal
+	Quantity   decimal.Decimal
+	Status     OrderStatus
+	FillPrice  decimal.Decimal
+	FillQty    decimal.Decimal
+	Fee        decimal.Decimal
+	SignalName string // name of the signal that triggered this order
 }

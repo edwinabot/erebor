@@ -63,7 +63,6 @@ jobs:
           working-directory: engine
 
   test:
-    name: test (go)
     runs-on: ubuntu-latest
     defaults:
       run:
