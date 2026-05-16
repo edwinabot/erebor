@@ -57,6 +57,39 @@ type RunRecord struct {
 	Status         RunStatus
 }
 
+// TradeRecord represents a completed fill from erebor-execution, persisted in backtest_trades.
+type TradeRecord struct {
+	RunID      string
+	TradeID    string
+	Symbol     string
+	EventTime  time.Time
+	Side       Side
+	FillPrice  decimal.Decimal
+	FillQty    decimal.Decimal
+	Fee        decimal.Decimal
+	SignalName string
+}
+
+// EquityPoint is a timestamped equity snapshot persisted in backtest_equity.
+type EquityPoint struct {
+	RunID     string
+	EventTime time.Time
+	Equity    decimal.Decimal
+}
+
+// MetricsRecord holds computed performance metrics for a completed backtest run.
+type MetricsRecord struct {
+	RunID            string
+	TotalReturnPct   decimal.Decimal
+	AnnualizedReturn decimal.Decimal
+	SharpeRatio      decimal.Decimal
+	MaxDrawdownPct   decimal.Decimal
+	HitRatePct       decimal.Decimal
+	AvgWin           decimal.Decimal
+	AvgLoss          decimal.Decimal
+	TradeCount       int
+}
+
 // Side, OrderType, OrderStatus, and OrderEvent are stubs that define the
 // stream contract for when erebor-execution ships. Not yet consumed by
 // this binary.

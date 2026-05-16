@@ -8,6 +8,7 @@ import (
 
 	"github.com/edwinabot/erebor/backtest/collector"
 	"github.com/edwinabot/erebor/backtest/domain"
+	"github.com/edwinabot/erebor/backtest/metrics"
 	"github.com/edwinabot/erebor/backtest/publisher"
 	"github.com/edwinabot/erebor/backtest/replay"
 	"github.com/edwinabot/erebor/backtest/repository"
@@ -29,9 +30,18 @@ type RunnerConfig struct {
 	StrategyConfig string
 }
 
+// Option configures a BacktestRunner.
+type Option func(*BacktestRunner)
+
+// WithCollectorBlockDuration overrides the XRead block timeout used by the
+// internal ResultCollector. The default is 5 s; tests should pass 50 ms.
+func WithCollectorBlockDuration(d time.Duration) Option {
+	return func(r *BacktestRunner) { r.collectorBlockDur = d }
+}
+
 // BacktestRunner orchestrates the full lifecycle of a single backtest run:
 // run record creation, multi-symbol replay fan-out, signal collection,
-// stream TTL, and final status persistence.
+// stream TTL, metrics computation, and final status persistence.
 //
 // Lifecycle per spec §9:
 //
@@ -42,35 +52,43 @@ type BacktestRunner struct {
 	cfg       RunnerConfig
 	namespace string
 
-	btRepo     *repository.BacktestRepository
-	ingestRepo ingestrepository.Repository
-	l2Pub      *publisher.L2Publisher
-	ctrlPub    *publisher.ControlPublisher
-	redis      *redis.Client
-	logger     *zap.Logger
+	btRepo      repository.RunStore
+	ingestRepo  ingestrepository.Repository
+	l2Pub       *publisher.L2Publisher
+	ctrlPub     *publisher.ControlPublisher
+	redis       *redis.Client
+	metricsComp       *metrics.Computer
+	collectorBlockDur time.Duration
+	logger            *zap.Logger
 }
 
 // New creates a BacktestRunner. namespace is derived from cfg.RunID and is used
 // as the prefix for all stream keys.
 func New(
 	cfg RunnerConfig,
-	btRepo *repository.BacktestRepository,
+	btRepo repository.RunStore,
 	ingestRepo ingestrepository.Repository,
 	l2Pub *publisher.L2Publisher,
 	ctrlPub *publisher.ControlPublisher,
 	redisClient *redis.Client,
 	logger *zap.Logger,
+	opts ...Option,
 ) *BacktestRunner {
-	return &BacktestRunner{
-		cfg:        cfg,
-		namespace:  "erebor:backtest:" + cfg.RunID,
-		btRepo:     btRepo,
-		ingestRepo: ingestRepo,
-		l2Pub:      l2Pub,
-		ctrlPub:    ctrlPub,
-		redis:      redisClient,
-		logger:     logger.With(zap.String("component", "backtest-runner"), zap.String("run_id", cfg.RunID)),
+	r := &BacktestRunner{
+		cfg:         cfg,
+		namespace:   "erebor:backtest:" + cfg.RunID,
+		btRepo:      btRepo,
+		ingestRepo:  ingestRepo,
+		l2Pub:       l2Pub,
+		ctrlPub:     ctrlPub,
+		redis:       redisClient,
+		metricsComp: metrics.New(btRepo, logger),
+		logger:      logger.With(zap.String("component", "backtest-runner"), zap.String("run_id", cfg.RunID)),
 	}
+	for _, o := range opts {
+		o(r)
+	}
+	return r
 }
 
 // Run executes the backtest from start to finish, blocking until complete.
@@ -123,7 +141,11 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 	}
 
 	// 4. Start signal collector in background.
-	col := collector.New(r.redis, r.namespace, r.cfg.RunID, r.logger)
+	var colOpts []collector.Option
+	if r.collectorBlockDur > 0 {
+		colOpts = append(colOpts, collector.WithBlockDuration(r.collectorBlockDur))
+	}
+	col := collector.New(r.redis, r.namespace, r.cfg.RunID, r.logger, colOpts...)
 	colCtx, colCancel := context.WithCancel(context.Background())
 	defer colCancel()
 	col.Start(colCtx)
@@ -209,7 +231,13 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 		zap.Duration("ttl", 24*time.Hour),
 	)
 
-	// 10. Transition → COMPLETED.
+	// 10. Compute performance metrics from persisted trades + equity.
+	if err := r.metricsComp.Compute(bgCtx, r.cfg.RunID); err != nil {
+		// Non-fatal: metrics failure does not change COMPLETED status.
+		r.logger.Error("failed to compute metrics", zap.String("run_id", r.cfg.RunID), zap.Error(err))
+	}
+
+	// 11. Transition → COMPLETED.
 	completed := time.Now()
 	if err := r.btRepo.UpdateRunStatus(bgCtx, r.cfg.RunID, domain.RunStatusCompleted, nil, &completed, ""); err != nil {
 		r.logger.Error("failed to mark run COMPLETED", zap.Error(err))
