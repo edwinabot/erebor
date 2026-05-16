@@ -52,11 +52,11 @@ type BacktestRunner struct {
 	cfg       RunnerConfig
 	namespace string
 
-	btRepo      repository.RunStore
-	ingestRepo  ingestrepository.Repository
-	l2Pub       *publisher.L2Publisher
-	ctrlPub     *publisher.ControlPublisher
-	redis       *redis.Client
+	btRepo            repository.RunStore
+	ingestRepo        ingestrepository.Repository
+	l2Pub             *publisher.L2Publisher
+	ctrlPub           *publisher.ControlPublisher
+	redis             *redis.Client
 	metricsComp       *metrics.Computer
 	collectorBlockDur time.Duration
 	logger            *zap.Logger

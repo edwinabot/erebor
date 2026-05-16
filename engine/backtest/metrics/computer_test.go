@@ -228,7 +228,7 @@ func TestComputeTradeMetricsHitRateMixed(t *testing.T) {
 	store := &mockStore{
 		trades: []domain.TradeRecord{
 			buyTrade("r", "BTCUSDT", "50000", "1", "0", base),
-			sellTrade("r", "BTCUSDT", "51000", "1", "0", base.Add(time.Hour)),   // win +1000
+			sellTrade("r", "BTCUSDT", "51000", "1", "0", base.Add(time.Hour)), // win +1000
 			buyTrade("r", "BTCUSDT", "50000", "1", "0", base.Add(2*time.Hour)),
 			sellTrade("r", "BTCUSDT", "49000", "1", "0", base.Add(3*time.Hour)), // loss -1000
 		},

@@ -60,7 +60,7 @@ type mockIngestRepo struct {
 	diffsErr      error
 }
 
-func (m *mockIngestRepo) WriteDiff(_ context.Context, _ ingestdomain.DiffEvent) error     { return nil }
+func (m *mockIngestRepo) WriteDiff(_ context.Context, _ ingestdomain.DiffEvent) error { return nil }
 func (m *mockIngestRepo) WriteCheckpoint(_ context.Context, _ ingestdomain.SnapshotEvent) error {
 	return nil
 }
