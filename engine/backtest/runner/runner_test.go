@@ -11,6 +11,7 @@ import (
 	"github.com/edwinabot/erebor/backtest/publisher"
 	"github.com/edwinabot/erebor/backtest/runner"
 	ingestdomain "github.com/edwinabot/erebor/ingest/domain"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -29,6 +30,8 @@ type mockRunStore struct {
 	createCalls  int
 	statusCalls  []string
 	metricsCalls int
+	tradeCalls   int
+	equityCalls  int
 }
 
 func (m *mockRunStore) CreateRun(_ context.Context, _ domain.RunRecord) error {
@@ -42,8 +45,14 @@ func (m *mockRunStore) UpdateRunStatus(_ context.Context, _ string, status domai
 func (m *mockRunStore) WriteDataGap(_ context.Context, _, _ string, _, _ time.Time) error {
 	return m.writeGapErr
 }
-func (m *mockRunStore) WriteTrade(_ context.Context, _ domain.TradeRecord) error       { return nil }
-func (m *mockRunStore) WriteEquityPoint(_ context.Context, _ domain.EquityPoint) error { return nil }
+func (m *mockRunStore) WriteTrade(_ context.Context, _ domain.TradeRecord) error {
+	m.tradeCalls++
+	return nil
+}
+func (m *mockRunStore) WriteEquityPoint(_ context.Context, _ domain.EquityPoint) error {
+	m.equityCalls++
+	return nil
+}
 func (m *mockRunStore) WriteMetrics(_ context.Context, _ domain.MetricsRecord) error {
 	m.metricsCalls++
 	return m.writeMetricErr
@@ -272,4 +281,71 @@ func TestRunnerPublishesReplayStartAndComplete(t *testing.T) {
 	}
 	assert.True(t, hasStart, "REPLAY_START must be published")
 	assert.True(t, hasComplete, "REPLAY_COMPLETE must be published")
+}
+
+// ── end-to-end: executor fires trades on high-imbalance L2 events ─────────────
+
+// makeRunnerWithStrategy creates a runner with a custom strategy JSON.
+func makeRunnerWithStrategy(
+	t *testing.T,
+	runID string,
+	store *mockRunStore,
+	ingest *mockIngestRepo,
+	symbols []string,
+	strategyConfig string,
+) *runner.BacktestRunner {
+	t.Helper()
+	_, client := testutil.NewMiniredis(t)
+	ns := runNamespacePrefix + runID
+	pubs := runner.Publishers{
+		L2:      publisher.NewL2Publisher(client, ns, zap.NewNop()),
+		Control: publisher.NewControlPublisher(client, ns, zap.NewNop()),
+	}
+	return runner.New(
+		runner.RunnerConfig{
+			RunID:          runID,
+			Symbols:        symbols,
+			From:           time.Now().Add(-time.Hour),
+			To:             time.Now(),
+			Depth:          5,
+			SpeedMode:      domain.SpeedAFAP,
+			SpeedFactor:    1.0,
+			StrategyConfig: strategyConfig,
+		},
+		store, ingest, pubs, client,
+		zap.NewNop(),
+		runner.WithCollectorBlockDuration(50*time.Millisecond),
+	)
+}
+
+func TestRunnerExecutorWritesTradesOnHighImbalance(t *testing.T) {
+	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	snap := testutil.MakeSnapshot("BTCUSDT", 100, baseTime)
+
+	// Diff with bid_qty=3.0, ask_qty=0.5 → imbalance≈0.71 > buy_threshold=0.5 → BUY fired
+	diffs := []ingestdomain.DiffEvent{
+		{
+			Symbol:        "BTCUSDT",
+			EventTime:     baseTime.Add(time.Second),
+			FirstUpdateID: 101,
+			FinalUpdateID: 101,
+			Bids: []ingestdomain.PriceLevel{
+				{Price: decimal.RequireFromString("50000"), Quantity: decimal.RequireFromString("3.0")},
+			},
+			Asks: []ingestdomain.PriceLevel{
+				{Price: decimal.RequireFromString("50001"), Quantity: decimal.RequireFromString("0.5")},
+			},
+		},
+	}
+
+	ingest := &mockIngestRepo{checkpoint: snap, diffs: diffs}
+	store := &mockRunStore{}
+
+	r := makeRunnerWithStrategy(t, "run-e2e-trades", store, ingest, []string{"BTCUSDT"},
+		`{"buy_threshold":"0.5","trade_qty":"0.001","taker_fee_bps":10}`)
+	require.NoError(t, r.Run(context.Background()))
+
+	assert.Equal(t, 1, store.tradeCalls, "one trade must be written for high-imbalance event")
+	assert.Equal(t, 1, store.equityCalls, "one equity point must be written")
+	assert.Contains(t, store.statusCalls, string(domain.RunStatusCompleted))
 }

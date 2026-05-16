@@ -8,6 +8,7 @@ import (
 
 	"github.com/edwinabot/erebor/backtest/collector"
 	"github.com/edwinabot/erebor/backtest/domain"
+	"github.com/edwinabot/erebor/backtest/execution"
 	"github.com/edwinabot/erebor/backtest/metrics"
 	"github.com/edwinabot/erebor/backtest/publisher"
 	"github.com/edwinabot/erebor/backtest/replay"
@@ -40,14 +41,14 @@ type Publishers struct {
 type Option func(*BacktestRunner)
 
 // WithCollectorBlockDuration overrides the XRead block timeout used by the
-// internal ResultCollector. The default is 5 s; tests should pass 50 ms.
+// internal ResultCollector and Executor. The default is 5 s; tests should pass 50 ms.
 func WithCollectorBlockDuration(d time.Duration) Option {
 	return func(r *BacktestRunner) { r.collectorBlockDur = d }
 }
 
 // BacktestRunner orchestrates the full lifecycle of a single backtest run:
 // run record creation, multi-symbol replay fan-out, signal collection,
-// stream TTL, metrics computation, and final status persistence.
+// paper-execution, stream TTL, metrics computation, and final status persistence.
 //
 // Lifecycle per spec §9:
 //
@@ -109,6 +110,19 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 		zap.String("namespace", r.namespace),
 	)
 
+	// Parse strategy config — needed before wiring executor and collector.
+	stratCfg, err := execution.ParseStrategyConfig(r.cfg.StrategyConfig)
+	if err != nil {
+		return fmt.Errorf("parse strategy config: %w", err)
+	}
+	r.logger.Info("strategy config parsed",
+		zap.Int("taker_fee_bps", stratCfg.TakerFeeBps),
+		zap.String("trade_qty", stratCfg.TradeQty.String()),
+		zap.String("buy_threshold", stratCfg.BuyThreshold.String()),
+		zap.String("sell_threshold", stratCfg.SellThreshold.String()),
+		zap.String("initial_capital", stratCfg.InitialCapital.String()),
+	)
+
 	// 1. Create run record (PENDING).
 	var speedFactor *float64
 	if r.cfg.SpeedMode == domain.SpeedNX {
@@ -143,8 +157,10 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 		r.logger.Warn("failed to publish REPLAY_START; continuing", zap.Error(err))
 	}
 
-	// 4. Start signal collector in background.
-	var colOpts []collector.Option
+	// 4. Start signal + order collector.
+	colOpts := []collector.Option{
+		collector.WithTradeWriter(r.btRepo, stratCfg.InitialCapital),
+	}
 	if r.collectorBlockDur > 0 {
 		colOpts = append(colOpts, collector.WithBlockDuration(r.collectorBlockDur))
 	}
@@ -153,7 +169,17 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 	defer colCancel()
 	col.Start(colCtx)
 
-	// 5. Fan out one ReplayEngine per symbol.
+	// 5. Start paper execution engine (reads :l2, writes :orders).
+	execOpts := []execution.Option{}
+	if r.collectorBlockDur > 0 {
+		execOpts = append(execOpts, execution.WithBlockDuration(r.collectorBlockDur))
+	}
+	exec := execution.NewExecutor(r.redis, r.namespace, r.cfg.Symbols, stratCfg, r.logger, execOpts...)
+	execCtx, execCancel := context.WithCancel(context.Background())
+	defer execCancel()
+	exec.Start(execCtx)
+
+	// 6. Fan out one ReplayEngine per symbol.
 	speed := replay.NewSpeedController(r.cfg.SpeedMode, r.cfg.SpeedFactor, r.logger)
 	g, gctx := errgroup.WithContext(ctx)
 
@@ -182,7 +208,12 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 	r.logger.Info("replay engines launched", zap.Int("symbol_count", len(r.cfg.Symbols)))
 	runErr := g.Wait()
 
-	// 6. Stop collector and wait for it to flush.
+	// 7. Stop executor first so it drains all L2 events and finishes publishing orders.
+	execCancel()
+	exec.Wait()
+	r.logger.Info("executor stopped")
+
+	// 8. Stop collector so it drains the orders stream and persists all trades.
 	colCancel()
 	col.Wait()
 	signalCounts := col.SignalCounts()
@@ -195,7 +226,7 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 	// already be cancelled (SIGTERM), but we still need to persist final status.
 	bgCtx := context.Background()
 
-	// 7a. Context cancelled → CANCELLED (SIGTERM path).
+	// 9a. Context cancelled → CANCELLED (SIGTERM path).
 	if ctx.Err() != nil {
 		r.logger.Warn("run cancelled by context",
 			zap.Duration("elapsed", time.Since(start)),
@@ -206,7 +237,7 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	// 7b. ReplayEngine error → FAILED.
+	// 9b. ReplayEngine error → FAILED.
 	if runErr != nil {
 		r.logger.Error("run failed",
 			zap.Duration("elapsed", time.Since(start)),
@@ -218,7 +249,7 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 		return runErr
 	}
 
-	// 8. Publish REPLAY_COMPLETE (fire-and-forget — erebor-signals drains on its own).
+	// 10. Publish REPLAY_COMPLETE (fire-and-forget — erebor-signals drains on its own).
 	if err := r.pubs.Control.Publish(ctx, domain.ControlEvent{
 		RunID:   r.cfg.RunID,
 		Type:    domain.ControlReplayComplete,
@@ -227,20 +258,20 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 		r.logger.Warn("failed to publish REPLAY_COMPLETE", zap.Error(err))
 	}
 
-	// 9. Set 24-hour TTL on all run-namespaced stream keys.
+	// 11. Set 24-hour TTL on all run-namespaced stream keys.
 	expiredCount := r.expireStreams(bgCtx)
 	r.logger.Info("stream TTLs set",
 		zap.Int("stream_count", expiredCount),
 		zap.Duration("ttl", 24*time.Hour),
 	)
 
-	// 10. Compute performance metrics from persisted trades + equity.
+	// 12. Compute performance metrics from persisted trades + equity.
 	if err := r.metricsComp.Compute(bgCtx, r.cfg.RunID); err != nil {
 		// Non-fatal: metrics failure does not change COMPLETED status.
 		r.logger.Error("failed to compute metrics", zap.String("run_id", r.cfg.RunID), zap.Error(err))
 	}
 
-	// 11. Transition → COMPLETED.
+	// 13. Transition → COMPLETED.
 	completed := time.Now()
 	if err := r.btRepo.UpdateRunStatus(bgCtx, r.cfg.RunID, domain.RunStatusCompleted, nil, &completed, ""); err != nil {
 		r.logger.Error("failed to mark run COMPLETED", zap.Error(err))
