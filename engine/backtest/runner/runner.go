@@ -30,6 +30,12 @@ type RunnerConfig struct {
 	StrategyConfig string
 }
 
+// Publishers bundles the Redis stream publishers required by BacktestRunner.
+type Publishers struct {
+	L2      *publisher.L2Publisher
+	Control *publisher.ControlPublisher
+}
+
 // Option configures a BacktestRunner.
 type Option func(*BacktestRunner)
 
@@ -54,8 +60,7 @@ type BacktestRunner struct {
 
 	btRepo            repository.RunStore
 	ingestRepo        ingestrepository.Repository
-	l2Pub             *publisher.L2Publisher
-	ctrlPub           *publisher.ControlPublisher
+	pubs              Publishers
 	redis             *redis.Client
 	metricsComp       *metrics.Computer
 	collectorBlockDur time.Duration
@@ -68,8 +73,7 @@ func New(
 	cfg RunnerConfig,
 	btRepo repository.RunStore,
 	ingestRepo ingestrepository.Repository,
-	l2Pub *publisher.L2Publisher,
-	ctrlPub *publisher.ControlPublisher,
+	pubs Publishers,
 	redisClient *redis.Client,
 	logger *zap.Logger,
 	opts ...Option,
@@ -79,8 +83,7 @@ func New(
 		namespace:   "erebor:backtest:" + cfg.RunID,
 		btRepo:      btRepo,
 		ingestRepo:  ingestRepo,
-		l2Pub:       l2Pub,
-		ctrlPub:     ctrlPub,
+		pubs:        pubs,
 		redis:       redisClient,
 		metricsComp: metrics.New(btRepo, logger),
 		logger:      logger.With(zap.String("component", "backtest-runner"), zap.String("run_id", cfg.RunID)),
@@ -132,7 +135,7 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 	}
 
 	// 3. Publish REPLAY_START so consumers can initialise.
-	if err := r.ctrlPub.Publish(ctx, domain.ControlEvent{
+	if err := r.pubs.Control.Publish(ctx, domain.ControlEvent{
 		RunID:   r.cfg.RunID,
 		Type:    domain.ControlReplayStart,
 		Payload: map[string]string{"symbols": strings.Join(r.cfg.Symbols, ",")},
@@ -167,8 +170,8 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 				},
 				r.ingestRepo,
 				r.btRepo,
-				r.l2Pub,
-				r.ctrlPub,
+				r.pubs.L2,
+				r.pubs.Control,
 				speed,
 				r.logger,
 			)
@@ -216,7 +219,7 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 	}
 
 	// 8. Publish REPLAY_COMPLETE (fire-and-forget — erebor-signals drains on its own).
-	if err := r.ctrlPub.Publish(ctx, domain.ControlEvent{
+	if err := r.pubs.Control.Publish(ctx, domain.ControlEvent{
 		RunID:   r.cfg.RunID,
 		Type:    domain.ControlReplayComplete,
 		Payload: map[string]string{"symbols": strings.Join(r.cfg.Symbols, ",")},
@@ -254,7 +257,7 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 
 // publishControl is a best-effort helper used during error/cancellation paths.
 func (r *BacktestRunner) publishControl(ctx context.Context, evType domain.ControlEventType, payload map[string]string) {
-	if err := r.ctrlPub.Publish(ctx, domain.ControlEvent{
+	if err := r.pubs.Control.Publish(ctx, domain.ControlEvent{
 		RunID:   r.cfg.RunID,
 		Type:    evType,
 		Payload: payload,

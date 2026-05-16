@@ -191,19 +191,19 @@ func tradeMetrics(trades []domain.TradeRecord) (hitRate, avgWin, avgLoss decimal
 	hitRate = decimal.NewFromInt(int64(len(wins))).Div(decimal.NewFromInt(int64(total))).Mul(hundred)
 
 	if len(wins) > 0 {
-		sum := decimal.Zero
-		for _, w := range wins {
-			sum = sum.Add(w)
-		}
-		avgWin = sum.Div(decimal.NewFromInt(int64(len(wins))))
+		avgWin = sumDecimals(wins).Div(decimal.NewFromInt(int64(len(wins))))
 	}
 	if len(losses) > 0 {
-		sum := decimal.Zero
-		for _, l := range losses {
-			sum = sum.Add(l)
-		}
-		avgLoss = sum.Div(decimal.NewFromInt(int64(len(losses))))
+		avgLoss = sumDecimals(losses).Div(decimal.NewFromInt(int64(len(losses))))
 	}
 
 	return
+}
+
+func sumDecimals(ds []decimal.Decimal) decimal.Decimal {
+	sum := decimal.Zero
+	for _, d := range ds {
+		sum = sum.Add(d)
+	}
+	return sum
 }

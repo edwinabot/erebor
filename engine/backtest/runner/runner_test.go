@@ -16,6 +16,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const runNamespacePrefix = "erebor:backtest:"
+
 // ── mocks ─────────────────────────────────────────────────────────────────────
 
 type mockRunStore struct {
@@ -82,9 +84,11 @@ func makeRunner(
 ) *runner.BacktestRunner {
 	t.Helper()
 	_, client := testutil.NewMiniredis(t)
-	ns := "erebor:backtest:" + runID
-	l2Pub := publisher.NewL2Publisher(client, ns, zap.NewNop())
-	ctrlPub := publisher.NewControlPublisher(client, ns, zap.NewNop())
+	ns := runNamespacePrefix + runID
+	pubs := runner.Publishers{
+		L2:      publisher.NewL2Publisher(client, ns, zap.NewNop()),
+		Control: publisher.NewControlPublisher(client, ns, zap.NewNop()),
+	}
 	return runner.New(
 		runner.RunnerConfig{
 			RunID:          runID,
@@ -96,7 +100,7 @@ func makeRunner(
 			SpeedFactor:    1.0,
 			StrategyConfig: "{}",
 		},
-		store, ingest, l2Pub, ctrlPub, client,
+		store, ingest, pubs, client,
 		zap.NewNop(),
 		runner.WithCollectorBlockDuration(50*time.Millisecond),
 	)
@@ -123,15 +127,17 @@ func TestRunnerHappyPathTransitionsToCompleted(t *testing.T) {
 func TestRunnerHappyPathPublishesL2Events(t *testing.T) {
 	runID := "run-l2"
 	_, client := testutil.NewMiniredis(t)
-	ns := "erebor:backtest:" + runID
+	ns := runNamespacePrefix + runID
 
 	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	snap := testutil.MakeSnapshot("BTCUSDT", 100, baseTime)
 	diffs := testutil.MakeDiffSeq("BTCUSDT", 101, baseTime.Add(time.Second), 5)
 	ingest := &mockIngestRepo{checkpoint: snap, diffs: diffs}
 
-	l2Pub := publisher.NewL2Publisher(client, ns, zap.NewNop())
-	ctrlPub := publisher.NewControlPublisher(client, ns, zap.NewNop())
+	pubs := runner.Publishers{
+		L2:      publisher.NewL2Publisher(client, ns, zap.NewNop()),
+		Control: publisher.NewControlPublisher(client, ns, zap.NewNop()),
+	}
 	r := runner.New(
 		runner.RunnerConfig{
 			RunID:          runID,
@@ -143,7 +149,7 @@ func TestRunnerHappyPathPublishesL2Events(t *testing.T) {
 			SpeedFactor:    1.0,
 			StrategyConfig: "{}",
 		},
-		&mockRunStore{}, ingest, l2Pub, ctrlPub, client,
+		&mockRunStore{}, ingest, pubs, client,
 		zap.NewNop(),
 		runner.WithCollectorBlockDuration(50*time.Millisecond),
 	)
@@ -225,15 +231,17 @@ func TestRunnerCancelledContextTransitionsToCancelled(t *testing.T) {
 func TestRunnerPublishesReplayStartAndComplete(t *testing.T) {
 	runID := "run-ctrl"
 	_, client := testutil.NewMiniredis(t)
-	ns := "erebor:backtest:" + runID
+	ns := runNamespacePrefix + runID
 
 	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	snap := testutil.MakeSnapshot("BTCUSDT", 100, baseTime)
 	diffs := testutil.MakeDiffSeq("BTCUSDT", 101, baseTime.Add(time.Second), 1)
 	ingest := &mockIngestRepo{checkpoint: snap, diffs: diffs}
 
-	l2Pub := publisher.NewL2Publisher(client, ns, zap.NewNop())
-	ctrlPub := publisher.NewControlPublisher(client, ns, zap.NewNop())
+	pubs := runner.Publishers{
+		L2:      publisher.NewL2Publisher(client, ns, zap.NewNop()),
+		Control: publisher.NewControlPublisher(client, ns, zap.NewNop()),
+	}
 	r := runner.New(
 		runner.RunnerConfig{
 			RunID:          runID,
@@ -245,7 +253,7 @@ func TestRunnerPublishesReplayStartAndComplete(t *testing.T) {
 			SpeedFactor:    1.0,
 			StrategyConfig: "{}",
 		},
-		&mockRunStore{}, ingest, l2Pub, ctrlPub, client,
+		&mockRunStore{}, ingest, pubs, client,
 		zap.NewNop(),
 		runner.WithCollectorBlockDuration(50*time.Millisecond),
 	)

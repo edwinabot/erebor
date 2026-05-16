@@ -139,8 +139,10 @@ func main() {
 	btRepo := repository.New(pool, logger)
 	ingestRepo := ingestrepository.New(pool)
 
-	l2Pub := publisher.NewL2Publisher(redisClient, namespace, logger)
-	ctrlPub := publisher.NewControlPublisher(redisClient, namespace, logger)
+	pubs := runner.Publishers{
+		L2:      publisher.NewL2Publisher(redisClient, namespace, logger),
+		Control: publisher.NewControlPublisher(redisClient, namespace, logger),
+	}
 
 	r := runner.New(
 		runner.RunnerConfig{
@@ -155,8 +157,7 @@ func main() {
 		},
 		btRepo,
 		ingestRepo,
-		l2Pub,
-		ctrlPub,
+		pubs,
 		redisClient,
 		logger,
 	)
