@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react";
 import { COLORS } from "../lib/colors";
 import { useImbalanceData } from "../hooks/useImbalanceData";
-import styles from "./ImbalanceChart.module.css";
 
 interface ImbalanceChartProps {
   symbol: string;
@@ -126,8 +125,16 @@ export default function ImbalanceChart({ symbol }: ImbalanceChartProps) {
 
   if (!data) {
     return (
-      <div className={styles.container}>
-        <div className={styles.loading}>LOADING IMBALANCE DATA...</div>
+      <div
+        className="flex h-full w-full items-center justify-center overflow-hidden"
+        style={{ backgroundColor: "var(--bg-primary)" }}
+      >
+        <span
+          className="text-sm tracking-widest animate-pulse"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          LOADING IMBALANCE DATA...
+        </span>
       </div>
     );
   }
@@ -136,30 +143,71 @@ export default function ImbalanceChart({ symbol }: ImbalanceChartProps) {
   const imbalance = parseFloat(latest.imbalance);
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
-        <h3>ORDER BOOK IMBALANCE (DEPTH: {data.depth_levels})</h3>
-        <div className={styles.stats}>
-          <div className={styles.stat}>
-            <span className={styles.label}>BID QTY</span>
-            <span className={styles.value + " " + styles.buy}>{latest.bid_qty}</span>
-          </div>
-          <div className={styles.stat}>
-            <span className={styles.label}>ASK QTY</span>
-            <span className={styles.value + " " + styles.sell}>{latest.ask_qty}</span>
-          </div>
-          <div className={styles.stat}>
-            <span className={styles.label}>IMBALANCE</span>
-            <span className={`${styles.value} ${imbalance >= 0 ? styles.buy : styles.sell}`}>
-              {(imbalance * 100).toFixed(1)}%
-            </span>
-          </div>
+    <div
+      className="flex flex-col h-full w-full overflow-hidden"
+      style={{ backgroundColor: "var(--bg-primary)" }}
+    >
+      {/* Stats bar */}
+      <div
+        className="flex items-center justify-between px-3 py-1.5 shrink-0 gap-4"
+        style={{
+          borderBottom: "1px solid var(--border-color)",
+          backgroundColor: "var(--bg-tertiary)",
+          fontFamily: '"IBM Plex Mono", monospace',
+        }}
+      >
+        <span
+          className="text-[11px] font-bold tracking-widest uppercase"
+          style={{ color: "var(--text-primary)" }}
+        >
+          DEPTH: {data.depth_levels}
+        </span>
+        <div className="flex gap-4">
+          <Stat label="BID QTY" value={latest.bid_qty} color="var(--color-buy)" />
+          <Stat label="ASK QTY" value={latest.ask_qty} color="var(--color-sell)" />
+          <Stat
+            label="IMBALANCE"
+            value={`${(imbalance * 100).toFixed(1)}%`}
+            color={imbalance >= 0 ? "var(--color-buy)" : "var(--color-sell)"}
+          />
         </div>
       </div>
-      <canvas ref={canvasRef} className={styles.canvas} />
-      <div className={styles.legend}>
-        <span className={styles.legendLabel}>Positive = Bid Heavy | Negative = Ask Heavy</span>
+
+      {/* Canvas */}
+      <canvas
+        ref={canvasRef}
+        className="flex-1 w-full block"
+        style={{ backgroundColor: "var(--bg-secondary)" }}
+      />
+
+      {/* Legend */}
+      <div
+        className="px-3 py-1 text-[10px] tracking-widest uppercase shrink-0"
+        style={{
+          borderTop: "1px solid var(--border-color)",
+          backgroundColor: "var(--bg-tertiary)",
+          color: "var(--text-secondary)",
+          fontFamily: '"IBM Plex Mono", monospace',
+        }}
+      >
+        Positive = Bid Heavy | Negative = Ask Heavy
       </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <span
+        className="text-[9px] tracking-wider uppercase font-semibold"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        {label}
+      </span>
+      <span className="text-xs font-semibold" style={{ color }}>
+        {value}
+      </span>
     </div>
   );
 }

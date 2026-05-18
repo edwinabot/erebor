@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react";
 import { COLORS } from "../lib/colors";
 import { useSpreadData } from "../hooks/useSpreadData";
-import styles from "./SpreadChart.module.css";
 
 interface SpreadChartProps {
   symbol: string;
@@ -142,8 +141,16 @@ export default function SpreadChart({ symbol }: SpreadChartProps) {
 
   if (!data) {
     return (
-      <div className={styles.container}>
-        <div className={styles.loading}>LOADING SPREAD DATA...</div>
+      <div
+        className="flex h-full w-full items-center justify-center overflow-hidden"
+        style={{ backgroundColor: "var(--bg-primary)" }}
+      >
+        <span
+          className="text-sm tracking-widest animate-pulse"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          LOADING SPREAD DATA...
+        </span>
       </div>
     );
   }
@@ -151,37 +158,64 @@ export default function SpreadChart({ symbol }: SpreadChartProps) {
   const latest = data.samples[data.samples.length - 1];
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
-        <h3>SPREAD & MID-PRICE</h3>
-        <div className={styles.stats}>
-          <div className={styles.stat}>
-            <span className={styles.label}>SPREAD</span>
-            <span className={styles.value}>
-              {latest.spread} ({latest.spread_bps} bps)
-            </span>
-          </div>
-          <div className={styles.stat}>
-            <span className={styles.label}>MID</span>
-            <span className={styles.value}>{latest.mid_price}</span>
-          </div>
+    <div
+      className="flex flex-col h-full w-full overflow-hidden"
+      style={{ backgroundColor: "var(--bg-primary)" }}
+    >
+      {/* Stats bar */}
+      <div
+        className="flex items-center justify-between px-3 py-1.5 shrink-0 gap-4"
+        style={{
+          borderBottom: "1px solid var(--border-color)",
+          backgroundColor: "var(--bg-tertiary)",
+          fontFamily: '"IBM Plex Mono", monospace',
+        }}
+      >
+        <div className="flex gap-4">
+          <Stat label="SPREAD" value={`${latest.spread} (${latest.spread_bps} bps)`} />
+          <Stat label="MID" value={latest.mid_price} />
+        </div>
+        <div className="flex items-center gap-3">
+          <LegendItem color="var(--text-primary)" label="MID-PRICE" />
+          <LegendItem color="var(--color-buy)" label="BID" />
+          <LegendItem color="var(--color-sell)" label="ASK" />
         </div>
       </div>
-      <canvas ref={canvasRef} className={styles.canvas} />
-      <div className={styles.legend}>
-        <div className={styles.legendItem}>
-          <div className={styles.dot + " " + styles.mid} />
-          <span>MID-PRICE</span>
-        </div>
-        <div className={styles.legendItem}>
-          <div className={styles.dot + " " + styles.bid} />
-          <span>BID</span>
-        </div>
-        <div className={styles.legendItem}>
-          <div className={styles.dot + " " + styles.ask} />
-          <span>ASK</span>
-        </div>
-      </div>
+
+      {/* Canvas */}
+      <canvas
+        ref={canvasRef}
+        className="flex-1 w-full block"
+        style={{ backgroundColor: "var(--bg-secondary)" }}
+      />
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span
+        className="text-[9px] tracking-wider uppercase font-semibold"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        {label}
+      </span>
+      <span className="text-xs font-semibold" style={{ color: "var(--color-accent)" }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function LegendItem({ color, label }: { color: string; label: string }) {
+  return (
+    <div
+      className="flex items-center gap-1.5 text-[9px] tracking-wider uppercase font-semibold"
+      style={{ color: "var(--text-secondary)" }}
+    >
+      <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+      {label}
     </div>
   );
 }
