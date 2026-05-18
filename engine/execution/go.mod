@@ -1,10 +1,12 @@
-module github.com/edwinabot/erebor/ingest
+module github.com/edwinabot/erebor/execution
 
 go 1.26.2
 
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
-	github.com/coder/websocket v1.8.14
+	github.com/edwinabot/erebor/backtest v0.0.0
+	github.com/edwinabot/erebor/signals v0.0.0-00010101000000-000000000000
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/shopspring/decimal v1.4.0
@@ -17,6 +19,8 @@ require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+	github.com/edwinabot/erebor/fillmath v0.0.0-00010101000000-000000000000 // indirect
+	github.com/edwinabot/erebor/risk v0.0.0-00010101000000-000000000000 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -38,3 +42,13 @@ require (
 	golang.org/x/text v0.29.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/edwinabot/erebor/backtest => ../backtest
+
+replace github.com/edwinabot/erebor/fillmath => ../fillmath
+
+replace github.com/edwinabot/erebor/ingest => ../
+
+replace github.com/edwinabot/erebor/risk => ../risk
+
+replace github.com/edwinabot/erebor/signals => ../signals

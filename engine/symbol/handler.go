@@ -12,6 +12,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// L2EventPublisher publishes a post-apply book snapshot to a Redis Stream.
+// Publish errors are non-fatal — ingest must continue if Redis is temporarily unavailable.
+type L2EventPublisher interface {
+	Publish(ctx context.Context, runID, symbol string, eventTime time.Time, lastUpdateID int64, bids, asks []domain.PriceLevel) error
+}
+
 type SymbolHandler interface {
 	HandleDiff(event domain.DiffEvent)
 	State() SymbolState
@@ -31,6 +37,7 @@ type Handler struct {
 	book    book.OrderBook
 	fetcher fetcher.DepthFetcher
 	repo    repository.Repository
+	l2pub   L2EventPublisher // optional; nil = no live publishing
 
 	ctx        context.Context
 	bootstrapG sync.WaitGroup
@@ -47,7 +54,13 @@ type Handler struct {
 	diffsSinceCheckpoint int
 }
 
-func NewHandler(cfg Config, ob book.OrderBook, df fetcher.DepthFetcher, repo repository.Repository, logger *zap.Logger) *Handler {
+// WithL2Publisher attaches a live L2 stream publisher to the handler.
+// If not called, L2 events are only persisted to TimescaleDB (backtest-only mode).
+func WithL2Publisher(pub L2EventPublisher) func(*Handler) {
+	return func(h *Handler) { h.l2pub = pub }
+}
+
+func NewHandler(cfg Config, ob book.OrderBook, df fetcher.DepthFetcher, repo repository.Repository, logger *zap.Logger, opts ...func(*Handler)) *Handler {
 	if cfg.DepthLimit <= 0 {
 		cfg.DepthLimit = 50
 	}
@@ -60,7 +73,7 @@ func NewHandler(cfg Config, ob book.OrderBook, df fetcher.DepthFetcher, repo rep
 	if cfg.MaxBufferSize <= 0 {
 		cfg.MaxBufferSize = 1000
 	}
-	return &Handler{
+	h := &Handler{
 		cfg:     cfg,
 		logger:  logger.With(zap.String("component", "symbol"), zap.String("symbol", cfg.Symbol)),
 		book:    ob,
@@ -68,6 +81,10 @@ func NewHandler(cfg Config, ob book.OrderBook, df fetcher.DepthFetcher, repo rep
 		repo:    repo,
 		state:   Disconnected,
 	}
+	for _, o := range opts {
+		o(h)
+	}
+	return h
 }
 
 // Start binds the handler to a context. The bootstrap snapshot fetch is
@@ -295,6 +312,8 @@ func (h *Handler) replayAlignedBufferLocked(alignIdx int, snap domain.SnapshotEv
 			)
 		}
 		h.lastFinalUpdateID = ev.FinalUpdateID
+		h.publishL2Locked(ev)
+
 		if err := h.repo.WriteDiff(h.ctxOrBackground(), ev); err != nil {
 			h.logger.Error("write diff failed during bootstrap replay", zap.Error(err))
 		}
@@ -329,6 +348,8 @@ func (h *Handler) handleSyncedLocked(event domain.DiffEvent) {
 	}
 	h.lastFinalUpdateID = event.FinalUpdateID
 
+	h.publishL2Locked(event)
+
 	if err := h.repo.WriteDiff(h.ctxOrBackground(), event); err != nil {
 		h.logger.Error("write diff failed", zap.Error(err))
 	}
@@ -354,6 +375,22 @@ func (h *Handler) handleSyncedLocked(event domain.DiffEvent) {
 				zap.Int("ask_levels", len(snap.Asks)),
 			)
 		}
+	}
+}
+
+// publishL2Locked publishes a post-apply L2 snapshot to the live stream.
+// Must be called while h.mu is held. Errors are logged but never fatal.
+func (h *Handler) publishL2Locked(event domain.DiffEvent) {
+	if h.l2pub == nil {
+		return
+	}
+	snap := h.book.Snapshot(h.cfg.DepthLimit)
+	if err := h.l2pub.Publish(h.ctxOrBackground(), "", h.cfg.Symbol, event.EventTime, event.FinalUpdateID, snap.Bids, snap.Asks); err != nil {
+		h.logger.Warn("L2 publish failed (non-fatal)",
+			zap.String("symbol", h.cfg.Symbol),
+			zap.Time("event_time", event.EventTime),
+			zap.Error(err),
+		)
 	}
 }
 

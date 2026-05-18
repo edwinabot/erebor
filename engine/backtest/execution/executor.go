@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edwinabot/erebor/backtest/domain"
+	"github.com/edwinabot/erebor/fillmath"
 	riskpkg "github.com/edwinabot/erebor/risk"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -224,7 +225,7 @@ func (e *Executor) handleL2(ctx context.Context, symbol string, pos *positionSta
 	}
 
 	qty := e.cfg.TradeQty
-	fee := computeFee(qty, fillPrice, e.cfg.TakerFeeBps)
+	fee := fillmath.ComputeFee(qty, fillPrice, e.cfg.TakerFeeBps)
 	orderID := newOrderID()
 
 	order := domain.OrderEvent{
@@ -289,19 +290,16 @@ func (e *Executor) tradeDecision(imbalance decimal.Decimal, pos *positionState) 
 }
 
 func (e *Executor) computeFillPrice(side domain.Side, bids, asks []priceLevel) (decimal.Decimal, error) {
-	slip := decimal.NewFromInt(int64(e.cfg.SlippageBps)).Div(decimal.NewFromInt(10000))
 	if side == domain.SideBuy {
 		if len(asks) == 0 {
 			return decimal.Zero, fmt.Errorf("empty asks: cannot compute BUY fill price")
 		}
-		bestAsk := asks[0].Price
-		return bestAsk.Add(bestAsk.Mul(slip)), nil
+		return fillmath.ComputeFillPrice(true, asks[0].Price, e.cfg.SlippageBps), nil
 	}
 	if len(bids) == 0 {
 		return decimal.Zero, fmt.Errorf("empty bids: cannot compute SELL fill price")
 	}
-	bestBid := bids[0].Price
-	return bestBid.Sub(bestBid.Mul(slip)), nil
+	return fillmath.ComputeFillPrice(false, bids[0].Price, e.cfg.SlippageBps), nil
 }
 
 func (e *Executor) publishOrder(ctx context.Context, order domain.OrderEvent) error {
@@ -415,10 +413,6 @@ func sumQty(levels []priceLevel, depth int) decimal.Decimal {
 		total = total.Add(lvl.Quantity)
 	}
 	return total
-}
-
-func computeFee(qty, price decimal.Decimal, feeBps int) decimal.Decimal {
-	return qty.Mul(price).Mul(decimal.NewFromInt(int64(feeBps))).Div(decimal.NewFromInt(10000))
 }
 
 func newOrderID() string {

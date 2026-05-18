@@ -16,10 +16,12 @@ import (
 	"github.com/edwinabot/erebor/ingest/book"
 	"github.com/edwinabot/erebor/ingest/dispatch"
 	"github.com/edwinabot/erebor/ingest/fetcher"
+	"github.com/edwinabot/erebor/ingest/publisher"
 	"github.com/edwinabot/erebor/ingest/repository"
 	"github.com/edwinabot/erebor/ingest/stream"
 	"github.com/edwinabot/erebor/ingest/symbol"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -39,7 +41,11 @@ type appConfig struct {
 		RESTBaseURL      string `mapstructure:"rest_base_url"`
 	} `mapstructure:"binance"`
 	Symbols []symbolConfig `mapstructure:"symbols"`
-	Log     struct {
+	Redis   struct {
+		Addr     string `mapstructure:"addr"`
+		Password string `mapstructure:"password"`
+	} `mapstructure:"redis"`
+	Log struct {
 		Level     string `mapstructure:"level"`      // stderr level
 		FileLevel string `mapstructure:"file_level"` // file level (defaults to debug)
 		FilePath  string `mapstructure:"file_path"`
@@ -92,6 +98,25 @@ func main() {
 	repo := repository.New(pool)
 	df := fetcher.New(cfg.Binance.RESTBaseURL)
 
+	// Optional: L2 Redis publisher for live paper trading.
+	// If REDIS_ADDR is not set or redis config is empty, L2 events are only persisted to DB.
+	var l2pub symbol.L2EventPublisher
+	redisAddr := cfg.Redis.Addr
+	if redisAddr == "" {
+		redisAddr = os.Getenv("REDIS_ADDR")
+	}
+	if redisAddr != "" {
+		redisClient := redis.NewClient(&redis.Options{
+			Addr:     redisAddr,
+			Password: cfg.Redis.Password,
+		})
+		defer func() { _ = redisClient.Close() }()
+		l2pub = publisher.NewL2Publisher(redisClient, "erebor:live", logger, publisher.WithMaxLen(50000))
+		rootLogger.Info("L2 Redis publisher initialised", zap.String("addr", redisAddr))
+	} else {
+		rootLogger.Info("REDIS_ADDR not set — L2 Redis publishing disabled")
+	}
+
 	handlers := make(map[string]symbol.SymbolHandler, len(cfg.Symbols))
 	concrete := make([]*symbol.Handler, 0, len(cfg.Symbols))
 	symbolNames := make([]string, 0, len(cfg.Symbols))
@@ -101,13 +126,17 @@ func main() {
 			rootLogger.Fatal("symbol entry missing name")
 		}
 		ob := book.New(name)
+		handlerOpts := []func(*symbol.Handler){}
+		if l2pub != nil {
+			handlerOpts = append(handlerOpts, symbol.WithL2Publisher(l2pub))
+		}
 		h := symbol.NewHandler(symbol.Config{
 			Symbol:                  name,
 			DepthLimit:              sc.DepthLimit,
 			CheckpointInterval:      sc.CheckpointInterval,
 			CheckpointDiffThreshold: sc.CheckpointDiffThreshold,
 			MaxBufferSize:           sc.MaxBufferSize,
-		}, ob, df, repo, logger)
+		}, ob, df, repo, logger, handlerOpts...)
 		handlers[name] = h
 		concrete = append(concrete, h)
 		symbolNames = append(symbolNames, name)
@@ -200,6 +229,8 @@ func loadConfig(path string) (appConfig, error) {
 	v.SetDefault("binance.rest_base_url", "https://api.binance.com")
 	v.SetDefault("log.level", "info")
 	v.SetDefault("health.addr", ":8080")
+	v.BindEnv("redis.addr", "REDIS_ADDR")         //nolint:errcheck
+	v.BindEnv("redis.password", "REDIS_PASSWORD") //nolint:errcheck
 	if err := v.ReadInConfig(); err != nil {
 		return cfg, err
 	}

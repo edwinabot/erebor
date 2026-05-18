@@ -49,11 +49,22 @@ type Publisher interface {
 	Publish(ctx context.Context, namespace string, event Event) error
 }
 
+// CheckerOption configures a Checker.
+type CheckerOption func(*Checker)
+
+// WithHaltStore attaches a persistent halt store to the checker.
+// When a halt is triggered the store is called so it survives process restarts.
+// On startup the checker probes the store on the first CanTrade call.
+func WithHaltStore(store HaltStore) CheckerOption {
+	return func(c *Checker) { c.haltStore = store }
+}
+
 // Checker provides pre-trade risk checks and post-fill state tracking.
 // All methods are safe for concurrent use.
 type Checker struct {
 	cfg        Config
 	pub        Publisher
+	haltStore  HaltStore // optional; nil = no persistence
 	logger     *zap.Logger
 	namespace  string
 	runID      string
@@ -61,8 +72,9 @@ type Checker struct {
 	positions  map[string]decimal.Decimal
 	equity     decimal.Decimal
 	peakEquity decimal.Decimal
-	halted     bool
-	haltReason string
+	halted       bool
+	haltReason   string
+	haltChecked  bool // true after the first haltStore.IsHalted probe
 }
 
 // New creates a Checker with the given config.
@@ -95,7 +107,7 @@ func New(cfg Config, pub Publisher) *Checker {
 
 // NewWithLogger creates a Checker with a provided zap.Logger, namespace, and run ID.
 // This constructor is used for production wiring where log context is available.
-func NewWithLogger(cfg Config, pub Publisher, logger *zap.Logger, namespace, runID string) *Checker {
+func NewWithLogger(cfg Config, pub Publisher, logger *zap.Logger, namespace, runID string, opts ...CheckerOption) *Checker {
 	equity := cfg.InitialCapital
 	if equity.IsZero() {
 		equity = decimal.Zero
@@ -110,6 +122,9 @@ func NewWithLogger(cfg Config, pub Publisher, logger *zap.Logger, namespace, run
 		positions:  make(map[string]decimal.Decimal),
 		equity:     equity,
 		peakEquity: equity,
+	}
+	for _, o := range opts {
+		o(c)
 	}
 
 	c.logger.Info("risk checker constructed",
@@ -142,7 +157,17 @@ func (c *Checker) CanTrade(symbol string, side domain.Side, qty decimal.Decimal,
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 1. Short-circuit if already halted.
+	// 1. Short-circuit if already halted (in-memory).
+	// On the first CanTrade call, probe haltStore to detect a halt that survived a restart.
+	if !c.halted && !c.haltChecked && c.haltStore != nil {
+		c.haltChecked = true
+		if persisted, err := c.haltStore.IsHalted(context.Background(), c.runID); err != nil {
+			c.logger.Warn("haltStore.IsHalted failed (ignoring)", zap.Error(err))
+		} else if persisted {
+			c.halted = true
+			c.haltReason = "persisted halt detected"
+		}
+	}
 	if c.halted {
 		c.logger.Warn("trade blocked: checker is halted",
 			zap.String("symbol", symbol),
@@ -166,6 +191,7 @@ func (c *Checker) CanTrade(symbol string, side domain.Side, qty decimal.Decimal,
 			)
 			c.halted = true
 			c.haltReason = string(EventDrawdownHalt)
+			c.persistHalt(context.Background())
 			c.publishEvent(context.Background(), Event{
 				RunID:     c.runID,
 				Symbol:    "",
@@ -192,6 +218,7 @@ func (c *Checker) CanTrade(symbol string, side domain.Side, qty decimal.Decimal,
 			)
 			c.halted = true
 			c.haltReason = string(EventRunLossHalt)
+			c.persistHalt(context.Background())
 			c.publishEvent(context.Background(), Event{
 				RunID:     c.runID,
 				Symbol:    "",
@@ -281,6 +308,17 @@ func (c *Checker) RecordFill(symbol string, side domain.Side, qty, fillPrice, fe
 		zap.String("new_equity", c.equity.String()),
 		zap.String("peak_equity", c.peakEquity.String()),
 	)
+}
+
+// persistHalt calls haltStore.SetHalted fire-and-forget. Errors are logged.
+// Must only be called while c.mu is held.
+func (c *Checker) persistHalt(ctx context.Context) {
+	if c.haltStore == nil {
+		return
+	}
+	if err := c.haltStore.SetHalted(ctx, c.runID); err != nil {
+		c.logger.Error("failed to persist halt state", zap.String("run_id", c.runID), zap.Error(err))
+	}
 }
 
 // publishEvent calls pub.Publish fire-and-forget. Errors are logged but not returned
