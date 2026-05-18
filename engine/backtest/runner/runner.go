@@ -14,6 +14,7 @@ import (
 	"github.com/edwinabot/erebor/backtest/replay"
 	"github.com/edwinabot/erebor/backtest/repository"
 	ingestrepository "github.com/edwinabot/erebor/ingest/repository"
+	risk "github.com/edwinabot/erebor/risk"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -174,7 +175,18 @@ func (r *BacktestRunner) Run(ctx context.Context) error {
 	if r.collectorBlockDur > 0 {
 		execOpts = append(execOpts, execution.WithBlockDuration(r.collectorBlockDur))
 	}
-	exec := execution.NewExecutor(r.redis, r.namespace, r.cfg.Symbols, stratCfg, r.logger, execOpts...)
+
+	// Construct risk checker from strategy config and wire it to the executor.
+	riskCfg := risk.Config{
+		InitialCapital:  stratCfg.InitialCapital,
+		MaxPositionQty:  stratCfg.MaxPositionQty,
+		MaxDrawdownPct:  stratCfg.MaxDrawdownPct,
+		RunLossLimitPct: stratCfg.RunLossLimitPct,
+	}
+	riskPub := risk.NewRedisPublisher(r.redis)
+	riskChk := risk.NewWithLogger(riskCfg, riskPub, r.logger, r.namespace, r.cfg.RunID)
+
+	exec := execution.NewExecutor(r.redis, r.namespace, r.cfg.Symbols, stratCfg, riskChk, r.logger, execOpts...)
 	execCtx, execCancel := context.WithCancel(context.Background())
 	defer execCancel()
 	exec.Start(execCtx)

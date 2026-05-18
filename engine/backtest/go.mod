@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/edwinabot/erebor/ingest v0.0.0
+	github.com/edwinabot/erebor/risk v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/redis/go-redis/v9 v9.7.3
@@ -30,3 +31,5 @@ require (
 )
 
 replace github.com/edwinabot/erebor/ingest => ../
+
+replace github.com/edwinabot/erebor/risk => ../risk
