@@ -31,6 +31,7 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, "localhost:6379", cfg.Redis.Addr)
 	assert.Equal(t, "", cfg.Redis.Password)
 	assert.Equal(t, "info", cfg.Log.Level)
+	assert.Equal(t, "debug", cfg.Log.FileLevel)
 	assert.Equal(t, ":8080", cfg.Health.Addr)
 }
 

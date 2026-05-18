@@ -84,6 +84,13 @@ func TestBookImbalance(t *testing.T) {
 			expected: "0",
 		},
 		{
+			name:     "zero total qty returns zero",
+			bids:     levels("100", "0"),
+			asks:     levels("101", "0"),
+			depth:    10,
+			expected: "0",
+		},
+		{
 			name: "depth truncation",
 			// 3 bid levels, depth=2: only top 2 counted
 			bids:     levels("100", "2", "99", "2", "98", "100"),
@@ -144,6 +151,12 @@ func TestSpreadBps(t *testing.T) {
 			asks:     levels("100", "1"),
 			expected: "0",
 		},
+		{
+			name:     "zero mid price returns zero",
+			bids:     levels("0", "1"),
+			asks:     levels("0", "1"),
+			expected: "0",
+		},
 	}
 
 	for _, tt := range tests {
@@ -188,6 +201,12 @@ func TestMidPrice(t *testing.T) {
 			name:     "only bids returns zero",
 			bids:     levels("100", "1"),
 			asks:     nil,
+			expected: "0",
+		},
+		{
+			name:     "only asks returns zero",
+			bids:     nil,
+			asks:     levels("101", "1"),
 			expected: "0",
 		},
 	}

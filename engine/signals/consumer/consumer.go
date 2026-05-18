@@ -124,6 +124,12 @@ func (c *Consumer) readLoop(ctx context.Context) {
 		streamArgs[len(c.symbols)+i] = ">"
 	}
 
+	c.logger.Info("read loop started",
+		zap.Strings("streams", streamArgs[:len(c.symbols)]),
+		zap.Duration("block_dur", c.blockDur),
+	)
+	defer c.logger.Info("read loop stopped")
+
 	for {
 		entries, err := c.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    groupName,
@@ -135,10 +141,12 @@ func (c *Consumer) readLoop(ctx context.Context) {
 
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
-				continue // block timeout; no new messages
+				c.logger.Debug("block timeout; no new messages")
+				continue
 			}
 			if ctx.Err() != nil {
-				return // context cancelled; clean shutdown
+				c.logger.Info("context cancelled; shutting down read loop")
+				return
 			}
 			c.logger.Error("xreadgroup error", zap.Error(err))
 			continue
@@ -146,6 +154,11 @@ func (c *Consumer) readLoop(ctx context.Context) {
 
 		for i := range entries {
 			streamKey := entries[i].Stream
+			msgCount := len(entries[i].Messages)
+			c.logger.Debug("received messages from stream",
+				zap.String("stream", streamKey),
+				zap.Int("count", msgCount),
+			)
 			for j := range entries[i].Messages {
 				c.handleMessage(ctx, streamKey, entries[i].Messages[j])
 			}
@@ -154,6 +167,8 @@ func (c *Consumer) readLoop(ctx context.Context) {
 }
 
 func (c *Consumer) handleMessage(ctx context.Context, streamKey string, msg redis.XMessage) {
+	c.logger.Debug("handling message", zap.String("id", msg.ID), zap.String("stream", streamKey))
+
 	event, err := decodeL2BookUpdateEvent(msg.Values)
 	if err != nil {
 		c.logger.Error("decode L2BookUpdateEvent", zap.String("id", msg.ID), zap.Error(err))
@@ -161,7 +176,15 @@ func (c *Consumer) handleMessage(ctx context.Context, streamKey string, msg redi
 		return
 	}
 
+	c.logger.Debug("decoded L2BookUpdateEvent",
+		zap.String("symbol", event.Symbol),
+		zap.Time("event_time", event.EventTime),
+		zap.Int("bids", len(event.Bids)),
+		zap.Int("asks", len(event.Asks)),
+	)
+
 	signals := compute.All(event, c.signalDepth)
+	published := 0
 	for _, sig := range signals {
 		if err := c.pub.Publish(ctx, sig); err != nil {
 			c.logger.Error("publish signal",
@@ -169,8 +192,17 @@ func (c *Consumer) handleMessage(ctx context.Context, streamKey string, msg redi
 				zap.String("symbol", sig.Symbol),
 				zap.Error(err),
 			)
+		} else {
+			published++
 		}
 	}
+
+	c.logger.Debug("published signals",
+		zap.String("symbol", event.Symbol),
+		zap.String("msg_id", msg.ID),
+		zap.Int("published", published),
+		zap.Int("total", len(signals)),
+	)
 
 	c.ack(ctx, streamKey, msg.ID)
 }
