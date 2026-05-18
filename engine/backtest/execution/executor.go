@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edwinabot/erebor/backtest/domain"
+	riskpkg "github.com/edwinabot/erebor/risk"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
@@ -37,6 +38,7 @@ type Executor struct {
 	namespace string
 	symbols   []string
 	cfg       StrategyConfig
+	risk      *riskpkg.Checker
 	blockDur  time.Duration
 	logger    *zap.Logger
 
@@ -45,11 +47,13 @@ type Executor struct {
 }
 
 // NewExecutor creates an Executor that publishes orders to {namespace}:orders.
+// riskChk provides pre-trade risk checks and post-fill state tracking.
 func NewExecutor(
 	client *redis.Client,
 	namespace string,
 	symbols []string,
 	cfg StrategyConfig,
+	riskChk *riskpkg.Checker,
 	logger *zap.Logger,
 	opts ...Option,
 ) *Executor {
@@ -58,6 +62,7 @@ func NewExecutor(
 		namespace: namespace,
 		symbols:   symbols,
 		cfg:       cfg,
+		risk:      riskChk,
 		blockDur:  defaultExecBlockDur,
 		logger:    logger.With(zap.String("component", "executor")),
 		ordersKey: namespace + ":orders",
@@ -198,6 +203,16 @@ func (e *Executor) handleL2(ctx context.Context, symbol string, pos *positionSta
 		return
 	}
 
+	// Risk gate: check all active risk rules before accepting the trade.
+	if riskErr := e.risk.CanTrade(symbol, side, e.cfg.TradeQty, ev.EventTime); riskErr != nil {
+		e.logger.Warn("trade blocked by risk check",
+			zap.String("symbol", symbol),
+			zap.String("side", string(side)),
+			zap.Error(riskErr),
+		)
+		return
+	}
+
 	fillPrice, err := e.computeFillPrice(side, ev.bids, ev.asks)
 	if err != nil {
 		e.logger.Warn("cannot compute fill price; skipping",
@@ -252,6 +267,9 @@ func (e *Executor) handleL2(ctx context.Context, symbol string, pos *positionSta
 			zap.Error(pubErr),
 		)
 	}
+
+	// Post-fill state update: keep risk checker equity and positions in sync.
+	e.risk.RecordFill(symbol, order.Side, order.FillQty, order.FillPrice, order.Fee)
 }
 
 // tradeDecision returns the side and whether to trade based on the book_imbalance

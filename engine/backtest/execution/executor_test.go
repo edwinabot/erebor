@@ -9,6 +9,7 @@ import (
 	"github.com/edwinabot/erebor/backtest/domain"
 	"github.com/edwinabot/erebor/backtest/execution"
 	"github.com/edwinabot/erebor/backtest/internal/testutil"
+	"github.com/edwinabot/erebor/risk"
 	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -59,14 +60,18 @@ func waitOrders(t *testing.T, client *redis.Client, streamKey string, want int, 
 	return msgs
 }
 
-// startExecutor creates and starts an Executor, returning a cancel func.
+// startExecutor creates and starts an Executor with a permissive (no-op) risk checker,
+// returning a cancel func.
 func startExecutor(t *testing.T, client *redis.Client, ns string, symbols []string, cfgJSON string) (context.CancelFunc, *execution.Executor) {
 	t.Helper()
 	cfg, err := execution.ParseStrategyConfig(cfgJSON)
 	require.NoError(t, err)
 
+	// Use a permissive risk checker (zero config = all limits disabled).
+	riskChk := risk.New(risk.Config{}, risk.NoopPublisher{})
+
 	ctx, cancel := context.WithCancel(context.Background())
-	exec := execution.NewExecutor(client, ns, symbols, cfg, zap.NewNop(),
+	exec := execution.NewExecutor(client, ns, symbols, cfg, riskChk, zap.NewNop(),
 		execution.WithBlockDuration(100*time.Millisecond))
 	exec.Start(ctx)
 	t.Cleanup(func() {

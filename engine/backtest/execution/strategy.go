@@ -17,6 +17,11 @@ type StrategyConfig struct {
 	BuyThreshold   decimal.Decimal `json:"buy_threshold"`  // buy when book_imbalance > this
 	SellThreshold  decimal.Decimal `json:"sell_threshold"` // sell when book_imbalance < -this
 	InitialCapital decimal.Decimal `json:"initial_capital"`
+
+	// Risk limits — zero value means the check is disabled (permissive default).
+	MaxPositionQty  map[string]decimal.Decimal `json:"max_position_qty"`
+	MaxDrawdownPct  decimal.Decimal            `json:"max_drawdown_pct"`
+	RunLossLimitPct decimal.Decimal            `json:"run_loss_limit_pct"`
 }
 
 var strategyDefaults = StrategyConfig{
