@@ -148,12 +148,43 @@ export default function MarketDepthChart({ symbol }: MarketDepthChartProps) {
       ctx.fillText(qty.toFixed(1), pad.left - 6, y);
     }
 
-    // X-axis price labels
+    // X-axis price labels — evenly spaced ticks, coloured by zone
     ctx.textAlign = "center";
-    ctx.fillStyle = COLORS.buy;
-    ctx.fillText(bestBidPrice.toFixed(2), px(bestBidPrice), pad.top + gh + 18);
-    ctx.fillStyle = COLORS.sell;
-    ctx.fillText(bestAskPrice.toFixed(2), px(bestAskPrice), pad.top + gh + 18);
+    const labelY = pad.top + gh + 18;
+    const minPxGap = 52; // minimum pixels between label centres to avoid overlap
+    const targetTicks = Math.max(2, Math.floor(gw / minPxGap));
+    const tickStep = totalPriceRange / (targetTicks - 1);
+
+    let lastLabelX = -Infinity;
+    for (let t = 0; t < targetTicks; t++) {
+      const price = worstBidPrice + t * tickStep;
+      const x = px(price);
+      if (x - lastLabelX < minPxGap) continue;
+      lastLabelX = x;
+
+      if (price <= bestBidPrice) {
+        ctx.fillStyle = COLORS.buy;
+      } else if (price >= bestAskPrice) {
+        ctx.fillStyle = COLORS.sell;
+      } else {
+        ctx.fillStyle = COLORS.neutral;
+      }
+      ctx.fillText(price.toFixed(1), x, labelY);
+    }
+    // Always draw best bid and best ask labels if they fit
+    const bidX = px(bestBidPrice);
+    const askX = px(bestAskPrice);
+    if (askX - bidX >= minPxGap) {
+      ctx.fillStyle = COLORS.buy;
+      ctx.fillText(bestBidPrice.toFixed(1), bidX, labelY);
+      ctx.fillStyle = COLORS.sell;
+      ctx.fillText(bestAskPrice.toFixed(1), askX, labelY);
+    } else {
+      // Spread is very tight — draw a single mid label in neutral colour
+      const midX = (bidX + askX) / 2;
+      ctx.fillStyle = COLORS.neutral;
+      ctx.fillText(((bestBidPrice + bestAskPrice) / 2).toFixed(1), midX, labelY);
+    }
   }, [data]);
 
   return (

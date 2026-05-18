@@ -83,49 +83,49 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* ── Main content: ladder left, charts right ──────────────────────── */}
-      <main className="flex flex-1 overflow-hidden" style={{ minHeight: 0 }}>
-        {/* Left column — Order Book Ladder */}
+      {/* ── Main content: two rows ───────────────────────────────────────── */}
+      <main className="flex flex-col flex-1 overflow-hidden" style={{ minHeight: 0 }}>
+        {/* Top row — Order Book Ladder + Market Depth side by side */}
         <div
-          className="w-[280px] shrink-0 flex flex-col overflow-hidden"
-          style={{ borderRight: "1px solid var(--border-color)" }}
+          className="flex flex-1 overflow-hidden"
+          style={{ borderBottom: "1px solid var(--border-color)" }}
         >
-          <PanelLabel label="ORDER BOOK LADDER" />
-          <div className="flex-1 overflow-hidden h-full w-full">
-            <OrderBookLadder symbol={symbol} />
-          </div>
-        </div>
-
-        {/* Right side — Market Depth (top) + Spread & Imbalance (bottom) */}
-        <div className="flex-1 flex flex-col overflow-hidden" style={{ minWidth: 0 }}>
-          {/* Top: Market Depth Chart */}
+          {/* Ladder */}
           <div
-            className="flex-1 flex flex-col overflow-hidden"
-            style={{ borderBottom: "1px solid var(--border-color)" }}
+            className="w-[280px] shrink-0 flex flex-col overflow-hidden"
+            style={{ borderRight: "1px solid var(--border-color)" }}
           >
+            <PanelLabel label="ORDER BOOK LADDER" />
+            <div className="flex-1 overflow-hidden h-full w-full">
+              <OrderBookLadder symbol={symbol} />
+            </div>
+          </div>
+
+          {/* Market Depth fills remaining top-row width */}
+          <div className="flex-1 flex flex-col overflow-hidden" style={{ minWidth: 0 }}>
             <PanelLabel label="MARKET DEPTH" />
             <div className="flex-1 overflow-hidden h-full w-full">
               <MarketDepthChart symbol={symbol} />
             </div>
           </div>
+        </div>
 
-          {/* Bottom row: Spread + Imbalance */}
-          <div className="flex flex-1 overflow-hidden">
-            <div
-              className="flex-1 flex flex-col overflow-hidden"
-              style={{ borderRight: "1px solid var(--border-color)" }}
-            >
-              <PanelLabel label="SPREAD & MID-PRICE" />
-              <div className="flex-1 overflow-hidden h-full w-full">
-                <SpreadChart symbol={symbol} />
-              </div>
+        {/* Bottom row — Spread + Imbalance */}
+        <div className="flex flex-1 overflow-hidden">
+          <div
+            className="flex-1 flex flex-col overflow-hidden"
+            style={{ borderRight: "1px solid var(--border-color)" }}
+          >
+            <PanelLabel label="SPREAD & MID-PRICE" />
+            <div className="flex-1 overflow-hidden h-full w-full">
+              <SpreadChart symbol={symbol} />
             </div>
+          </div>
 
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <PanelLabel label="ORDER BOOK IMBALANCE" />
-              <div className="flex-1 overflow-hidden h-full w-full">
-                <ImbalanceChart symbol={symbol} />
-              </div>
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <PanelLabel label="ORDER BOOK IMBALANCE" />
+            <div className="flex-1 overflow-hidden h-full w-full">
+              <ImbalanceChart symbol={symbol} />
             </div>
           </div>
         </div>
