@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react";
 import { COLORS } from "../lib/colors";
 import { useMarketDepthData } from "../hooks/useMarketDepthData";
-import styles from "./MarketDepthChart.module.css";
 
 interface MarketDepthChartProps {
   symbol: string;
@@ -158,24 +157,49 @@ export default function MarketDepthChart({ symbol }: MarketDepthChartProps) {
   }, [data]);
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
-        <h3>MARKET DEPTH</h3>
-        <span className={styles.timestamp}>
+    <div
+      className="flex flex-col h-full w-full overflow-hidden"
+      style={{ backgroundColor: "var(--bg-primary)" }}
+    >
+      {/* Stats bar */}
+      <div
+        className="flex items-center justify-between px-3 py-1.5 shrink-0 gap-4"
+        style={{
+          borderBottom: "1px solid var(--border-color)",
+          backgroundColor: "var(--bg-tertiary)",
+          fontFamily: '"IBM Plex Mono", monospace',
+        }}
+      >
+        <span className="text-[11px] tracking-wider" style={{ color: "var(--text-secondary)" }}>
           {data ? new Date(data.timestamp).toLocaleTimeString() : "—"}
         </span>
-      </div>
-      <canvas ref={canvasRef} className={styles.canvas} />
-      <div className={styles.legend}>
-        <div className={styles.legendItem}>
-          <div className={styles.legendBid} />
-          <span>BID SIDE</span>
-        </div>
-        <div className={styles.legendItem}>
-          <div className={styles.legendAsk} />
-          <span>ASK SIDE</span>
+        <div className="flex items-center gap-4">
+          <LegendItem color="var(--color-buy)" label="BID SIDE" />
+          <LegendItem color="var(--color-sell)" label="ASK SIDE" />
         </div>
       </div>
+
+      {/* Canvas */}
+      <canvas
+        ref={canvasRef}
+        className="flex-1 w-full block"
+        style={{ backgroundColor: "var(--bg-secondary)" }}
+      />
+    </div>
+  );
+}
+
+function LegendItem({ color, label }: { color: string; label: string }) {
+  return (
+    <div
+      className="flex items-center gap-1.5 text-[9px] tracking-wider uppercase font-semibold"
+      style={{ color: "var(--text-secondary)" }}
+    >
+      <span
+        className="inline-block w-2.5 h-2.5 rounded-sm opacity-70"
+        style={{ backgroundColor: color }}
+      />
+      {label}
     </div>
   );
 }
