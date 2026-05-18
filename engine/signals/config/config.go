@@ -29,6 +29,7 @@ func Load(path string) (Config, error) {
 	v.SetDefault("signal_depth", 10)
 	v.SetDefault("redis.addr", "localhost:6379")
 	v.SetDefault("log.level", "info")
+	v.SetDefault("log.file_level", "debug")
 	v.SetDefault("health.addr", ":8080")
 
 	// Allow env vars to override config file values.
