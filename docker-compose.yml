@@ -59,6 +59,8 @@ services:
       BINANCE_API_KEY: ${BINANCE_API_KEY}
       BINANCE_API_SECRET: ${BINANCE_API_SECRET}
       DATABASE_DSN: postgres://erebor:${TIMESCALEDB_PASSWORD:-erebor_dev}@timescaledb:5432/erebor?sslmode=disable
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-erebor_dev}
     volumes:
       - ./engine/config.docker.yaml:/app/config.yaml:ro
     ports:
