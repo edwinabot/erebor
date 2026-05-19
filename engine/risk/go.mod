@@ -1,6 +1,6 @@
 module github.com/edwinabot/erebor/risk
 
-go 1.22.0
+go 1.26.2
 
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
