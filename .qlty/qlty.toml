@@ -67,7 +67,7 @@ name = "gofmt"
 
 [[plugin]]
 name = "golangci-lint"
-version = "2.6.2"
+version = "2.12.1"
 drivers = [
   "lint",
 ]
