@@ -62,19 +62,19 @@ func WithHaltStore(store HaltStore) CheckerOption {
 // Checker provides pre-trade risk checks and post-fill state tracking.
 // All methods are safe for concurrent use.
 type Checker struct {
-	cfg        Config
-	pub        Publisher
-	haltStore  HaltStore // optional; nil = no persistence
-	logger     *zap.Logger
-	namespace  string
-	runID      string
-	mu         sync.Mutex
-	positions  map[string]decimal.Decimal
-	equity     decimal.Decimal
-	peakEquity decimal.Decimal
-	halted       bool
-	haltReason   string
-	haltChecked  bool // true after the first haltStore.IsHalted probe
+	cfg         Config
+	pub         Publisher
+	haltStore   HaltStore // optional; nil = no persistence
+	logger      *zap.Logger
+	namespace   string
+	runID       string
+	mu          sync.Mutex
+	positions   map[string]decimal.Decimal
+	equity      decimal.Decimal
+	peakEquity  decimal.Decimal
+	halted      bool
+	haltReason  string
+	haltChecked bool // true after the first haltStore.IsHalted probe
 }
 
 // New creates a Checker with the given config.
@@ -144,6 +144,24 @@ func (c *Checker) Halted() bool {
 	return c.halted
 }
 
+// probePersistedHalt checks haltStore once (on the first CanTrade call) to
+// restore halt state that survived a process restart. Must be called with c.mu held.
+func (c *Checker) probePersistedHalt() {
+	if c.halted || c.haltChecked || c.haltStore == nil {
+		return
+	}
+	c.haltChecked = true
+	persisted, err := c.haltStore.IsHalted(context.Background(), c.runID)
+	if err != nil {
+		c.logger.Warn("haltStore.IsHalted failed (ignoring)", zap.Error(err))
+		return
+	}
+	if persisted {
+		c.halted = true
+		c.haltReason = "persisted halt detected"
+	}
+}
+
 // CanTrade returns nil if the proposed order passes all active risk rules,
 // or a descriptive error if any rule is violated.
 // eventTime is propagated from the L2 event that triggered the trade decision.
@@ -159,15 +177,7 @@ func (c *Checker) CanTrade(symbol string, side domain.Side, qty decimal.Decimal,
 
 	// 1. Short-circuit if already halted (in-memory).
 	// On the first CanTrade call, probe haltStore to detect a halt that survived a restart.
-	if !c.halted && !c.haltChecked && c.haltStore != nil {
-		c.haltChecked = true
-		if persisted, err := c.haltStore.IsHalted(context.Background(), c.runID); err != nil {
-			c.logger.Warn("haltStore.IsHalted failed (ignoring)", zap.Error(err))
-		} else if persisted {
-			c.halted = true
-			c.haltReason = "persisted halt detected"
-		}
-	}
+	c.probePersistedHalt()
 	if c.halted {
 		c.logger.Warn("trade blocked: checker is halted",
 			zap.String("symbol", symbol),

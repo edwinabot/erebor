@@ -1,0 +1,11 @@
+go 1.22.0
+toolchain go1.26.2
+
+use (
+	./engine
+	./engine/backtest
+	./engine/execution
+	./engine/fillmath
+	./engine/risk
+	./engine/signals
+)

@@ -26,7 +26,7 @@ describe("queryLatestSnapshot", () => {
   it("passes symbol as query parameter", async () => {
     const pool = makePool([mockRow]);
     await queryLatestSnapshot(pool, "ETHUSDT");
-    const [, params] = (pool.query as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [, params] = vi.mocked(pool.query).mock.calls[0];
     expect(params).toContain("ETHUSDT");
   });
 
@@ -51,7 +51,7 @@ describe("queryRecentSnapshots", () => {
   it("passes symbol and limit as query parameters", async () => {
     const pool = makePool([mockRow]);
     await queryRecentSnapshots(pool, "ETHUSDT", 30);
-    const [, params] = (pool.query as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [, params] = vi.mocked(pool.query).mock.calls[0];
     expect(params).toContain("ETHUSDT");
     expect(params).toContain(30);
   });

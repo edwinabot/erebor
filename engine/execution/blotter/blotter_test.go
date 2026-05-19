@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	testSessID    = "sess-1"
+	testSessID     = "sess-1"
 	postOpenEquity = "9999.95"
 )
 

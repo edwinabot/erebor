@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -117,29 +118,9 @@ func main() {
 		rootLogger.Info("REDIS_ADDR not set — L2 Redis publishing disabled")
 	}
 
-	handlers := make(map[string]symbol.SymbolHandler, len(cfg.Symbols))
-	concrete := make([]*symbol.Handler, 0, len(cfg.Symbols))
-	symbolNames := make([]string, 0, len(cfg.Symbols))
-	for _, sc := range cfg.Symbols {
-		name := strings.ToUpper(sc.Name)
-		if name == "" {
-			rootLogger.Fatal("symbol entry missing name")
-		}
-		ob := book.New(name)
-		handlerOpts := []func(*symbol.Handler){}
-		if l2pub != nil {
-			handlerOpts = append(handlerOpts, symbol.WithL2Publisher(l2pub))
-		}
-		h := symbol.NewHandler(symbol.Config{
-			Symbol:                  name,
-			DepthLimit:              sc.DepthLimit,
-			CheckpointInterval:      sc.CheckpointInterval,
-			CheckpointDiffThreshold: sc.CheckpointDiffThreshold,
-			MaxBufferSize:           sc.MaxBufferSize,
-		}, ob, df, repo, logger, handlerOpts...)
-		handlers[name] = h
-		concrete = append(concrete, h)
-		symbolNames = append(symbolNames, name)
+	handlers, concrete, symbolNames, err := buildSymbolHandlers(cfg.Symbols, l2pub, df, repo, logger)
+	if err != nil {
+		rootLogger.Fatal(err.Error())
 	}
 
 	healthAddr := cfg.Health.Addr
@@ -176,19 +157,23 @@ func main() {
 
 	<-ctx.Done()
 	rootLogger.Info("shutdown initiated")
+	runShutdown(healthSrv, sm, dispatchDone, concrete, rootLogger)
+	rootLogger.Info("shutdown complete")
+}
 
+func runShutdown(healthSrv *http.Server, sm io.Closer, dispatchDone <-chan struct{}, concrete []*symbol.Handler, logger *zap.Logger) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	// 1. Stop accepting new health probes.
 	if err := healthSrv.Shutdown(shutdownCtx); err != nil {
-		rootLogger.Warn("health server shutdown error", zap.Error(err))
+		logger.Warn("health server shutdown error", zap.Error(err))
 	}
 
 	// 2. Close the WebSocket stream — no new diffs will be produced. This
 	//    closes the Events channel, which lets the dispatcher loop exit.
 	if err := sm.Close(); err != nil {
-		rootLogger.Warn("stream close error", zap.Error(err))
+		logger.Warn("stream close error", zap.Error(err))
 	}
 
 	// 3. Wait for the dispatcher to finish processing whatever was already
@@ -196,7 +181,7 @@ func main() {
 	select {
 	case <-dispatchDone:
 	case <-shutdownCtx.Done():
-		rootLogger.Warn("dispatcher did not drain before deadline")
+		logger.Warn("dispatcher did not drain before deadline")
 	}
 
 	// 4. Wait for any in-flight snapshot fetches to unwind. They observe
@@ -204,8 +189,34 @@ func main() {
 	for _, h := range concrete {
 		h.Stop()
 	}
+}
 
-	rootLogger.Info("shutdown complete")
+func buildSymbolHandlers(cfgSymbols []symbolConfig, l2pub symbol.L2EventPublisher, df fetcher.DepthFetcher, repo repository.Repository, logger *zap.Logger) (map[string]symbol.SymbolHandler, []*symbol.Handler, []string, error) {
+	handlers := make(map[string]symbol.SymbolHandler, len(cfgSymbols))
+	concrete := make([]*symbol.Handler, 0, len(cfgSymbols))
+	symbolNames := make([]string, 0, len(cfgSymbols))
+	for _, sc := range cfgSymbols {
+		name := strings.ToUpper(sc.Name)
+		if name == "" {
+			return nil, nil, nil, fmt.Errorf("symbol entry missing name")
+		}
+		ob := book.New(name)
+		handlerOpts := []func(*symbol.Handler){}
+		if l2pub != nil {
+			handlerOpts = append(handlerOpts, symbol.WithL2Publisher(l2pub))
+		}
+		h := symbol.NewHandler(symbol.Config{
+			Symbol:                  name,
+			DepthLimit:              sc.DepthLimit,
+			CheckpointInterval:      sc.CheckpointInterval,
+			CheckpointDiffThreshold: sc.CheckpointDiffThreshold,
+			MaxBufferSize:           sc.MaxBufferSize,
+		}, ob, df, repo, logger, handlerOpts...)
+		handlers[name] = h
+		concrete = append(concrete, h)
+		symbolNames = append(symbolNames, name)
+	}
+	return handlers, concrete, symbolNames, nil
 }
 
 func requireEnv(keys ...string) error {

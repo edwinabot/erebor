@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edwinabot/erebor/execution/l2cache"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/edwinabot/erebor/execution/l2cache"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

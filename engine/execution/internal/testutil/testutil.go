@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	signalsdomain "github.com/edwinabot/erebor/signals/domain"
 	"github.com/alicebob/miniredis/v2"
+	signalsdomain "github.com/edwinabot/erebor/signals/domain"
 	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"

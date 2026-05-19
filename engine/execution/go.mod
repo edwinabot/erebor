@@ -1,6 +1,6 @@
 module github.com/edwinabot/erebor/execution
 
-go 1.26.2
+go 1.22.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0

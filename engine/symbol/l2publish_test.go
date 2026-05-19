@@ -75,11 +75,11 @@ func newSyncedHandler(t *testing.T, l2pub symbol.L2EventPublisher) *symbol.Handl
 
 // newMockBook is a minimal book that satisfies book.OrderBook and the LoadSnapshot interface.
 type mockBook struct {
-	depth    int
-	lastUID  int64
-	mu       sync.Mutex
-	bids     []domain.PriceLevel
-	asks     []domain.PriceLevel
+	depth   int
+	lastUID int64
+	mu      sync.Mutex
+	bids    []domain.PriceLevel
+	asks    []domain.PriceLevel
 }
 
 func newMockBook(lastUID int64) *mockBook {
