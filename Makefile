@@ -1,4 +1,4 @@
-.PHONY: build test cover cover-html lint fmt migrate db-up db-down db-logs db-wait db-reset run dev up down logs clean
+.PHONY: build test test-ingest test-backtest test-execution test-fillmath test-risk test-signals cover cover-html lint fmt migrate db-up db-down db-logs db-wait db-reset run dev up down logs clean
 
 BIN        := bin/erebor-ingest
 MAIN       := ./cmd/erebor-ingest
@@ -16,8 +16,25 @@ build:
 	mkdir -p bin
 	cd $(ENGINE_DIR) && go build -o ../$(BIN) $(MAIN)
 
-test:
+test-ingest:
 	cd $(ENGINE_DIR) && go test -race ./...
+
+test-backtest:
+	cd $(ENGINE_DIR)/backtest && go test -race ./...
+
+test-execution:
+	cd $(ENGINE_DIR)/execution && go test -race ./...
+
+test-fillmath:
+	cd $(ENGINE_DIR)/fillmath && go test -race ./...
+
+test-risk:
+	cd $(ENGINE_DIR)/risk && go test -race ./...
+
+test-signals:
+	cd $(ENGINE_DIR)/signals && go test -race ./...
+
+test: test-ingest test-backtest test-execution test-fillmath test-risk test-signals
 
 cover:
 	cd $(ENGINE_DIR) && go test -race -covermode=atomic -coverprofile=coverage.out ./...
