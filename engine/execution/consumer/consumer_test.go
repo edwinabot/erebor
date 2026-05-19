@@ -25,8 +25,8 @@ func TestConsumerCallsHandlerForEachSignal(t *testing.T) {
 	var receivedSig signalsdomain.SignalEvent
 
 	h := func(_ context.Context, _ string, sig signalsdomain.SignalEvent) error {
-		atomic.StoreInt32(&called, 1)
 		receivedSig = sig
+		atomic.StoreInt32(&called, 1)
 		return nil
 	}
 
